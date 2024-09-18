@@ -28,21 +28,42 @@ module alu #(
 	parameter I_LR = 4'b0111;
 	parameter I_CLZ = 4'b1000;
 	parameter I_RM4 = 4'b1001;
+	parameter POS_MAX = {{1'b0}, {DATA_W-1{1'b1}}};
+	parameter NEG_MAX = {{1'b1}, {DATA_W-1{1'b0}}};
 
     // Wires and Regs
 	reg [INST_W-1:0] inst;
 	reg signed [DATA_W-1:0] data_a, data_b;
-	reg signed [DATA_W:0] o_data_reg;
+	reg signed [DATA_W:0] o_data_nxt, o_data_reg;
 
 
     // Continuous Assignments
-
+	assign o_data = o_data_reg[DATA_W-1:0];
 
     // Combinatorial Blocks
 
 		always @(*) begin
+			o_data_nxt = o_data_reg;
 			case(inst)
-
+				I_ADD: begin
+					o_data_nxt = data_a + data_b;
+					if((data_a[DATA_W-1] == data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+						if(data_a[DATA_W-1] == 1'b0)	// overflow (pos+pos->neg, should be pos)
+							o_data_nxt = {{1'b0}, POS_MAX};
+						else	// underflow
+							o_data_nxt = {{1'b0}, NEG_MAX};
+					end
+				end
+				I_SUB: begin
+					o_data_nxt = data_a - data_b;
+					if((data_a[DATA_W-1] != data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+						if(data_a[DATA_W-1] == 1'b0)	// overflow (pos-neg->neg, should be pos)
+							o_data_nxt = {{1'b0}, POS_MAX};
+						else	// underflow
+							o_data_nxt = {{1'b0}, NEG_MAX};
+					end
+				end
+				
 			endcase
 		end
 
@@ -51,8 +72,12 @@ module alu #(
 
 	always @(posedge i_clk or negedge i_rst_n) begin
 		if(!i_rst_n) begin
+			o_data_reg <= 0;
+			data_a <= 0;
+			data_b <= 0;
 		end
 		else begin
+			// load data
 			data_a <= data_a;
 			data_b <= data_b;
 			inst <= inst
@@ -61,6 +86,8 @@ module alu #(
 				data_b <= i_data_b;
 				inst <= i_inst;
 			end
+
+			o_data_reg <= o_data_nxt;
 		end
 	end
 
