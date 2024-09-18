@@ -28,66 +28,175 @@ module alu #(
 	parameter I_LR = 4'b0111;
 	parameter I_CLZ = 4'b1000;
 	parameter I_RM4 = 4'b1001;
+
+	parameter S_IDLE = 2'b00;
+	parameter S_OUT = 2'b10;
+	parameter S_PROC = 2'b01;
+
 	parameter POS_MAX = {{1'b0}, {DATA_W-1{1'b1}}};
 	parameter NEG_MAX = {{1'b1}, {DATA_W-1{1'b0}}};
+	parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
+	parameter ONE_NINTH = {{2'b0}, {14'b00010001000100}};
 
+	parameter ACC_SIZE = 20;
     // Wires and Regs
 	reg [INST_W-1:0] inst;
 	reg signed [DATA_W-1:0] data_a, data_b;
-	reg signed [DATA_W:0] o_data_nxt, o_data_reg;
+	reg signed [2*DATA_W-1:0] o_data_nxt, o_data_reg, o_data_tmp;
+	reg [1:0] state, state_nxt;
+	reg outflag, zeroflag;
+	reg signed [ACC_SIZE-1:0] data_acc[15:0];
+	reg signed [ACC_SIZE-1:0] data_acc_nxt;
 
 
     // Continuous Assignments
 	assign o_data = o_data_reg[DATA_W-1:0];
+	assign o_busy = (state != S_IDLE);
+	assign o_out_valid = (state == S_OUT);
 
+
+		// Maybe a FSM?
+	always @(*) begin
+		state_nxt = state;
+		case(state)
+			S_IDLE: begin
+				if(i_in_valid)
+					state_nxt = S_PROC;
+			end
+			S_OUT: state_nxt = S_IDLE;
+			S_PROC: state_nxt = S_OUT;
+		endcase
+	end
+	
     // Combinatorial Blocks
+	integer j;
+	always @(*) begin
+		o_data_nxt = o_data_reg;
+		o_data_tmp = 0;
+		data_acc_nxt = data_acc[0] = 0;
+		zeroflag = 0;
+		case(inst)
+			I_ADD: begin
+				o_data_nxt = data_a + data_b;
+				if((data_a[DATA_W-1] == data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+					if(data_a[DATA_W-1] == 1'b0)	// overflow (pos+pos->neg, should be pos)
+						o_data_nxt = POS_MAX;
+					else	// underflow
+						o_data_nxt = NEG_MAX;
+				end
+			end
+			I_SUB: begin
+				o_data_nxt = data_a - data_b;
+				if((data_a[DATA_W-1] != data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+					if(data_a[DATA_W-1] == 1'b0)	// overflow (pos-neg->neg, should be pos)
+						o_data_nxt = POS_MAX;
+					else	// underflow
+						o_data_nxt = NEG_MAX;
+				end
+			end
+			I_MUL: begin
+				o_data_tmp = data_a*data_b;
+				o_data_nxt = ( o_data_tmp+ 10'b10_0000_0000 ) >> FRAC_W;	// for rounding
+				if(o_data_nxt > $signed(POS_MAX))
+					o_data_nxt = POS_MAX;
+				else if(o_data_nxt < $signed(NEG_MAX))
+					o_data_nxt = NEG_MAX;
+			end
+			I_ACC: begin
+				data_acc_nxt = data_acc[data_a] + data_b
+				o_data_nxt = data_acc_nxt;
+				// Saturation
+				if((data_acc[data_a][DATA_W-1] == data_b[DATA_W-1]) && data_b[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+					if(data_b[DATA_W-1] == 1'b0) // overflow (pos+pos->neg)
+						o_data_nxt = POS_MAX;
+					else
+						o_data_nxt = NEG_MAX;
+				end
+			end
+			I_SOFT: begin
+				if(data_a >= $signed(2)) begin
+					o_data_nxt = data_a;
+				end
+				else if (data_a >= $signed(0)) begin
+					o_data_tmp = (data_a*(4'sd2) + 4'sd2)*$signed(ONE_THIRD);
+				end
+				else if (data_a >= -1) begin
+					o_data_tmp = (data_a + 4'sd2)*$signed(ONE_THIRD);
+				end
+				else if (data_a >= -2) begin
+					o_data_tmp = (data_a*(4'sd2) + 4'sd5)*$signed(ONE_NINTH);
+				end
+				else if(data_a >= -3) begin
+					o_data_tmp = (data_a + 4'sd3)*$signed(ONE_NINTH);
+				end
+				else begin
+					o_data_nxt = 0;
+				end
+				if(data_a < $signed(2) || data_a > $signed(-3)) begin
+					o_data_nxt = ( o_data_tmp + 14'b10_0000_0000_0000 ) >>> 14;	// for rounding
+				if(o_data_nxt > $signed(POS_MAX))
+					o_data_nxt = POS_MAX;
+				else if(o_data_nxt < $signed(NEG_MAX))
+					o_data_nxt = NEG_MAX;
+				end
+			end
+			I_XOR: begin
+				o_data_nxt = data_a ^ data_b;s
+			end
+			I_ARS: begin
+				o_data_nxt = data_a >>> $unsigned(data_b);
+			end
+			I_LR: begin
+				o_data_tmp = {data_a, data_a}; 
+				o_data_nxt = o_data_tmp[2*DATA_W-1-$unsigned(data_b) -: DATA_W];
+			end
+			I_CLZ: begin
+				o_data_tmp = -1;
+				for (j=0; j<DATA_W-1; j=j+1) begin
+					if(data_a[j] != 1'b0)
+						o_data_tmp = j;
+				end
+				o_data_nxt = $signed(DATA_W) - 2'sb1 - o_data_tmp;
+			end
+			I_RM4: begin
+				for (j=0; j<=12; j=j+1) begin
+					o_data_nxt[j] = (data_a[j+3:j] == j_data_b[15-j:12-j]);
+				end
+				o_data_nxt[15:13] = 3'b000;
+			end
 
-		always @(*) begin
-			o_data_nxt = o_data_reg;
-			case(inst)
-				I_ADD: begin
-					o_data_nxt = data_a + data_b;
-					if((data_a[DATA_W-1] == data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
-						if(data_a[DATA_W-1] == 1'b0)	// overflow (pos+pos->neg, should be pos)
-							o_data_nxt = {{1'b0}, POS_MAX};
-						else	// underflow
-							o_data_nxt = {{1'b0}, NEG_MAX};
-					end
-				end
-				I_SUB: begin
-					o_data_nxt = data_a - data_b;
-					if((data_a[DATA_W-1] != data_b[DATA_W-1]) && data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
-						if(data_a[DATA_W-1] == 1'b0)	// overflow (pos-neg->neg, should be pos)
-							o_data_nxt = {{1'b0}, POS_MAX};
-						else	// underflow
-							o_data_nxt = {{1'b0}, NEG_MAX};
-					end
-				end
-				
-			endcase
-		end
+		endcase
+	end
 
 
     // Sequential Blocks
-
+	integer i;
 	always @(posedge i_clk or negedge i_rst_n) begin
 		if(!i_rst_n) begin
 			o_data_reg <= 0;
 			data_a <= 0;
 			data_b <= 0;
+			state <= S_IDLE;
+			for(i=0; i<16; i=i+1) begin
+				data_acc[i] <= 16'b0;
+			end
+				
 		end
 		else begin
 			// load data
-			data_a <= data_a;
-			data_b <= data_b;
-			inst <= inst
+			// data_a <= data_a;
+			// data_b <= data_b;
+			// inst <= inst
 			if(i_in_valid) begin
 				data_a <= i_data_a;
 				data_b <= i_data_b;
 				inst <= i_inst;
 			end
-
 			o_data_reg <= o_data_nxt;
+			state <= state_nxt;
+			if(inst == I_ACC) begin
+				data_acc[data_a] <= data_acc_nxt;
+			end
 		end
 	end
 
