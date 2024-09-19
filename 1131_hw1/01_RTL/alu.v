@@ -35,18 +35,21 @@ module alu #(
 
 	parameter POS_MAX = {{1'b0}, {(DATA_W-1){1'b1}}};
 	parameter NEG_MAX = {{1'b1}, {(DATA_W-1){1'b0}}};
+	// parameter ONE_THIRD = {{2'b0}, {30'b010101010101010101010101010101}};
+	// parameter ONE_NINTH = {{2'b0}, {30'b000100010001000100010001000100}};
 	parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
-	parameter ONE_NINTH = {{2'b0}, {14'b00010001000100}};
+	parameter ONE_NINTH = {{2'b0}, {14'b00011100011100}};
 
 	parameter ACC_SIZE = 20;
     // Wires and Regs
 	reg [INST_W-1:0] inst;
 	reg signed [DATA_W-1:0] data_a, data_b, mul;
-	reg signed [2*DATA_W-1:0] o_data_nxt, o_data_reg, o_data_tmp;
+	reg signed [4*DATA_W-1:0] o_data_nxt, o_data_reg, o_data_tmp, data_comp;
 	reg [1:0] state, state_nxt;
 	reg outflag;
 	reg signed [ACC_SIZE-1:0] data_acc [0:15];
 	reg signed [ACC_SIZE-1:0] data_acc_nxt;
+	reg signed shift_amount;
 	// wire [3:0] idx;
 
 
@@ -55,6 +58,8 @@ module alu #(
 	assign o_busy = (state != S_IDLE);
 	assign o_out_valid = (state == S_OUT);
 	// assign idx = (data_a >>> 10);
+
+	// Function practice
 
 		// Maybe a FSM?
 	always @(*) begin
@@ -76,6 +81,7 @@ module alu #(
 		o_data_tmp = 0;
 		data_acc_nxt = data_acc[data_a];
 		mul = 0;
+		shift_amount = 0;
 		if(state == S_PROC || state == S_IDLE || state == S_OUT) begin
 			case(inst)
 				I_ADD: begin
@@ -103,6 +109,7 @@ module alu #(
 						o_data_nxt = POS_MAX;
 					else if(o_data_nxt < $signed(NEG_MAX))
 						o_data_nxt = NEG_MAX;
+					//!check rounding
 				end
 				I_ACC: begin
 					data_acc_nxt = $signed(data_acc[data_a]) + data_b;
@@ -121,10 +128,6 @@ module alu #(
 					//! Why is the original one wrong
 				end
 				I_SOFT: begin
-					if(data_a[DATA_W-1] == 1'b0)	// data_a >= 0
-						o_data_tmp = data_a >>> 10;
-					else
-						o_data_tmp = $signed(data_a >>> 10) - 2'sb1;
 					if(data_a >= 14'sb00_1000_0000_0000) begin
 						o_data_nxt = data_a;
 					end
@@ -133,18 +136,24 @@ module alu #(
 					end
 					else begin
 						if (data_a[DATA_W-1] == 1'b0 ) begin	// data_a >= 0
-							o_data_tmp = $signed((data_a<<<1) + 12'b1000_0000_0000)*$signed(ONE_THIRD);
+							o_data_tmp = $signed((data_a) + 16'sb0000_0100_0000_0000)*$signed(ONE_THIRD);
+							shift_amount = 1;
 						end
 						else if (data_a >= 14'sb11_1100_0000_0000) begin
-							o_data_tmp = $signed(data_a + 12'b1000_0000_0000)*$signed(ONE_THIRD);
+							o_data_tmp = $signed(data_a + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
 						end
 						else if (data_a >= 14'sb11_1000_0000_0000) begin
-							o_data_tmp = $signed((data_a<<<1) + 13'b1_0100_0000_0000)*$signed(ONE_NINTH);
+							o_data_tmp = $signed((data_a) + 16'sb0000_1010_0000_0000)*$signed(ONE_NINTH);
+							shift_amount = 1;
 						end
 						else begin // (o_data_tmp >= -3)
-							o_data_tmp = $signed(data_a + 12'b1100_0000_0000)*$signed(ONE_NINTH);
+							o_data_tmp = $signed(data_a + 16'sb0000_1100_0000_0000)*$signed(ONE_NINTH);
 						end
-						o_data_nxt = $signed( o_data_tmp + 14'b10_0000_0000_0000 ) >>> 14;	// for rounding
+						// $displayb("O_data_temp = ", o_data_tmp);
+						if(shift_amount == 0)
+							o_data_nxt = $signed( o_data_tmp + 16'b0010_0000_0000_0000 ) >>> 14;	// for rounding
+						else
+							o_data_nxt = $signed( o_data_tmp + 16'b0001_0000_0000_0000 ) >>> 13;	// for rounding
 					
 						if(o_data_nxt > $signed(POS_MAX))
 							o_data_nxt = POS_MAX;
