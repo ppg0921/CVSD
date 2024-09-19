@@ -163,12 +163,12 @@ module alu #(
 					o_data_nxt = o_data_tmp[2*DATA_W-1-$unsigned(data_b) -: DATA_W];
 				end
 				I_CLZ: begin
-					o_data_tmp = -1;
-					for (j=0; j<DATA_W-1; j=j+1) begin
+					o_data_tmp = 0;
+					for (j=0; j<DATA_W; j=j+1) begin
 						if(data_a[j] != 1'b0)
 							o_data_tmp = j;
 					end
-					o_data_nxt = $signed(DATA_W) - 2'sb1 - o_data_tmp;
+					o_data_nxt = $signed(DATA_W-1) - o_data_tmp;
 				end
 				I_RM4: begin
 					for (j=0; j<=12; j=j+1) begin
