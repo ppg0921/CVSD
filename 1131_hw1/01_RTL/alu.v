@@ -40,16 +40,17 @@ module alu #(
 	parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
 	parameter ONE_NINTH = {{2'b0}, {14'b00011100011100}};
 
-	parameter ACC_SIZE = 20;
+	parameter ACC_SIZE = 21;
     // Wires and Regs
 	reg [INST_W-1:0] inst;
-	reg signed [DATA_W-1:0] data_a, data_b, mul;
-	reg signed [4*DATA_W-1:0] o_data_nxt, o_data_reg, o_data_tmp, data_comp;
+	reg signed [DATA_W-1:0] data_a, data_b;
+	reg signed [2*DATA_W-1:0] o_data_nxt, o_data_reg, o_data_tmp, data_comp;
 	reg [1:0] state, state_nxt;
 	reg outflag;
 	reg signed [ACC_SIZE-1:0] data_acc [0:15];
 	reg signed [ACC_SIZE-1:0] data_acc_nxt;
 	reg signed shift_amount;
+	wire [3:0] idx;
 	// wire [3:0] idx;
 
 
@@ -57,6 +58,7 @@ module alu #(
 	assign o_data = o_data_reg[DATA_W-1:0];
 	assign o_busy = (state != S_IDLE);
 	assign o_out_valid = (state == S_OUT);
+	assign idx = data_a[3:0];
 	// assign idx = (data_a >>> 10);
 
 	// Function practice
@@ -80,7 +82,6 @@ module alu #(
 		o_data_nxt = o_data_reg;
 		o_data_tmp = 0;
 		data_acc_nxt = data_acc[data_a];
-		mul = 0;
 		shift_amount = 0;
 		if(state == S_PROC || state == S_IDLE || state == S_OUT) begin
 			case(inst)
@@ -112,7 +113,7 @@ module alu #(
 					//!check rounding
 				end
 				I_ACC: begin
-					data_acc_nxt = $signed(data_acc[data_a]) + data_b;
+					data_acc_nxt = data_acc[data_a] + data_b;
 					o_data_nxt = data_acc_nxt;
 					// Saturation
 					if(o_data_nxt > $signed(POS_MAX))
@@ -136,18 +137,18 @@ module alu #(
 					end
 					else begin
 						if (data_a[DATA_W-1] == 1'b0 ) begin	// data_a >= 0
-							o_data_tmp = $signed((data_a) + 16'sb0000_0100_0000_0000)*$signed(ONE_THIRD);
+							o_data_tmp = ((data_a) + 16'sb0000_0100_0000_0000)*$signed(ONE_THIRD);
 							shift_amount = 1;
 						end
 						else if (data_a >= 14'sb11_1100_0000_0000) begin
-							o_data_tmp = $signed(data_a + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
+							o_data_tmp = (data_a + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
 						end
 						else if (data_a >= 14'sb11_1000_0000_0000) begin
-							o_data_tmp = $signed((data_a) + 16'sb0000_1010_0000_0000)*$signed(ONE_NINTH);
+							o_data_tmp = ((data_a) + 16'sb0000_1010_0000_0000)*$signed(ONE_NINTH);
 							shift_amount = 1;
 						end
 						else begin // (o_data_tmp >= -3)
-							o_data_tmp = $signed(data_a + 16'sb0000_1100_0000_0000)*$signed(ONE_NINTH);
+							o_data_tmp = (data_a + 16'sb0000_1100_0000_0000)*$signed(ONE_NINTH);
 						end
 						// $displayb("O_data_temp = ", o_data_tmp);
 						if(shift_amount == 0)
@@ -177,7 +178,7 @@ module alu #(
 						if(data_a[j] != 1'b0)
 							o_data_tmp = j;
 					end
-					o_data_nxt = $signed(DATA_W-1) - o_data_tmp;
+					o_data_nxt = (DATA_W-1) - o_data_tmp;
 				end
 				I_RM4: begin
 					for (j=0; j<=12; j=j+1) begin
@@ -199,8 +200,9 @@ module alu #(
 			data_a <= 0;
 			data_b <= 0;
 			state <= S_IDLE;
+			inst <= 0;
 			for(i=0; i<16; i=i+1) begin
-				data_acc[i] <= 20'b0;
+				data_acc[i] <= 21'b0;
 			end
 				
 		end
