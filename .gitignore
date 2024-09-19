@@ -2,3 +2,11 @@
 *.tar
 *.f
 *.dat
+*.log
+*.key
+*.conf
+*.fsdb
+simv.daidir/
+nWaveLog/
+csrc/
+BSSLib.lib++/
