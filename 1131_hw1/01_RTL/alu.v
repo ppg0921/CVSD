@@ -51,14 +51,13 @@ module alu #(
 	reg signed [ACC_SIZE-1:0] data_acc_nxt;
 	reg signed shift_amount;
 	wire [3:0] idx;
-	// wire [3:0] idx;
 
 
     // Continuous Assignments
 	assign o_data = o_data_reg[DATA_W-1:0];
 	assign o_busy = (state != S_IDLE);
 	assign o_out_valid = (state == S_OUT);
-	assign idx = data_a[3:0];
+	assign idx = (inst == I_ACC)? data_a[3:0]: data_b[4:0];
 	// assign idx = (data_a >>> 10);
 
 	// Function practice
@@ -81,7 +80,7 @@ module alu #(
 	always @(*) begin
 		o_data_nxt = o_data_reg;
 		o_data_tmp = 0;
-		data_acc_nxt = data_acc[data_a];
+		data_acc_nxt = data_acc[idx];
 		shift_amount = 0;
 		if(state == S_PROC || state == S_IDLE || state == S_OUT) begin
 			case(inst)
@@ -113,7 +112,7 @@ module alu #(
 					//!check rounding
 				end
 				I_ACC: begin
-					data_acc_nxt = data_acc[data_a] + data_b;
+					data_acc_nxt = data_acc[idx] + data_b;
 					o_data_nxt = data_acc_nxt;
 					// Saturation
 					if(o_data_nxt > $signed(POS_MAX))
@@ -170,7 +169,7 @@ module alu #(
 				end
 				I_LR: begin
 					o_data_tmp = {data_a, data_a}; 
-					o_data_nxt = o_data_tmp[2*DATA_W-1-$unsigned(data_b) -: DATA_W];
+					o_data_nxt = o_data_tmp[2*DATA_W-1-$unsigned(idx) -: DATA_W];
 				end
 				I_CLZ: begin
 					o_data_tmp = 0;
@@ -219,7 +218,7 @@ module alu #(
 			o_data_reg <= o_data_nxt;
 			state <= state_nxt;
 			if(inst == I_ACC && state == S_PROC) begin
-				data_acc[data_a] <= data_acc_nxt;
+				data_acc[idx] <= data_acc_nxt;
 			end
 		end
 	end
