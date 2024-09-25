@@ -18,31 +18,36 @@ module alu #(
 );
 
     // Local Parameters
-	parameter I_ADD = 4'b0000;
-	parameter I_SUB = 4'b0001;
-	parameter I_MUL = 4'b0010;
-	parameter I_ACC = 4'b0011;
-	parameter I_SOFT = 4'b0100;
-	parameter I_XOR = 4'b0101;
-	parameter I_ARS = 4'b0110;
-	parameter I_LR = 4'b0111;
-	parameter I_CLZ = 4'b1000;
-	parameter I_RM4 = 4'b1001;
+	localparam I_ADD = 4'b0000;
+	localparam I_SUB = 4'b0001;
+	localparam I_MUL = 4'b0010;
+	localparam I_ACC = 4'b0011;
+	localparam I_SOFT = 4'b0100;
+	localparam I_XOR = 4'b0101;
+	localparam I_ARS = 4'b0110;
+	localparam I_LR = 4'b0111;
+	localparam I_CLZ = 4'b1000;
+	localparam I_RM4 = 4'b1001;
 
-	parameter S_IDLE = 2'b00;
-	parameter S_OUT = 2'b10;
-	parameter S_PROC = 2'b01;
+	localparam S_IDLE = 2'b00;
+	localparam S_OUT = 2'b10;
+	localparam S_PROC = 2'b01;
 
-	parameter POS_MAX = {{1'b0}, {(DATA_W-1){1'b1}}};
-	parameter NEG_MAX = {{1'b1}, {(DATA_W-1){1'b0}}};
+	localparam POS_MAX = {{1'b0}, {(DATA_W-1){1'b1}}};
+	localparam NEG_MAX = {{1'b1}, {(DATA_W-1){1'b0}}};
 	// parameter ONE_THIRD = {{2'b0}, {30'b010101010101010101010101010101}};
 	// parameter ONE_NINTH = {{2'b0}, {30'b000100010001000100010001000100}};
-	parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
-	parameter ONE_NINTH = {{2'b0}, {14'b00011100011100}};
-	// parameter ONE_THIRD = 16'b1010101010101011;
-	// parameter ONE_NINTH = 16'b1110001110001111;
+	// parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
+	// parameter ONE_NINTH = {{2'b0}, {14'b00011100011100}};
+	localparam ONE_THIRD = 16'b0101010101010101;
+	localparam ONE_NINTH = 16'b0111000111000111;
+	localparam NEG_ONE = 14'sb11_1100_0000_0000;
+	localparam NEG_TWO = 14'sb11_1000_0000_0000;
+	localparam NEG_THREE = 14'sb11_0100_0000_0000;
+	localparam TWO = 14'sb00_1000_0000_0000;
+	localparam FIVE = 16'sb0001_0100_0000_0000;
 
-	parameter ACC_SIZE = 21;
+	parameter ACC_SIZE = 20;
     // Wires and Regs
 	reg [INST_W-1:0] inst;
 	reg signed [DATA_W-1:0] data_a, data_b;
@@ -50,8 +55,8 @@ module alu #(
 	reg [1:0] state, state_nxt;
 	reg outflag;
 	reg signed [ACC_SIZE-1:0] data_acc [0:15];
-	reg signed [ACC_SIZE-1:0] data_acc_nxt;
-	reg signed shift_amount;
+	reg signed [ACC_SIZE:0] data_acc_nxt;
+	reg [4:0] shift_amount;
 	// wire [4:0] idx;
 
 
@@ -130,32 +135,36 @@ module alu #(
 					//! Why is the original one wrong
 				end
 				I_SOFT: begin
-					if(data_a >= 14'sb00_1000_0000_0000) begin
+					if(data_a >= TWO) begin
 						o_data_nxt = data_a;
 					end
-					else if (data_a <= 14'sb11_0100_0000_0000) begin
+					else if (data_a <= NEG_THREE) begin
 						o_data_nxt = 0;
 					end
 					else begin
 						if (data_a[DATA_W-1] == 1'b0 ) begin	// data_a >= 0
-							o_data_tmp = ((data_a << 1) + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
+							o_data_tmp = ((data_a << 1) + TWO)*$signed(ONE_THIRD);
+							shift_amount = 17;
 							// shift_amount = 1;
 						end
-						else if (data_a >= 14'sb11_1100_0000_0000) begin
-							o_data_tmp = (data_a + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
+						else if (data_a >= NEG_ONE) begin
+							o_data_tmp = (data_a + TWO)*$signed(ONE_THIRD);
+							shift_amount = 17;
 						end
-						else if (data_a >= 14'sb11_1000_0000_0000) begin
-							o_data_tmp = ((data_a << 1) + 16'sb0001_0100_0000_0000)*$signed(ONE_NINTH);
+						else if (data_a >= NEG_TWO) begin
+							o_data_tmp = ((data_a << 1) + FIVE)*$signed(ONE_NINTH);
+							shift_amount = 19;
 							// shift_amount = 1;
 						end
 						else begin // (o_data_tmp >= -3)
 							o_data_tmp = (data_a + 16'sb0000_1100_0000_0000)*$signed(ONE_NINTH);
+							shift_amount = 19;
 						end
 						// $displayb("O_data_temp = ", o_data_tmp);
-						if(shift_amount == 0)
-							o_data_nxt = $signed( o_data_tmp + 16'b0010_0000_0000_0000 ) >>> 14;	// for rounding
+						if(shift_amount == 17)
+							o_data_nxt = $signed( o_data_tmp + 20'b0000_1000_0000_0000_0000 ) >>> 16;	// for rounding
 						else
-							o_data_nxt = $signed( o_data_tmp + 16'b0001_0000_0000_0000 ) >>> 13;	// for rounding
+							o_data_nxt = $signed( o_data_tmp + 20'b0010_0000_0000_0000_0000 ) >>> 18;	// for rounding
 					
 						if(o_data_nxt > $signed(POS_MAX))
 							o_data_nxt = POS_MAX;
@@ -220,7 +229,7 @@ module alu #(
 			o_data_reg <= o_data_nxt;
 			state <= state_nxt;
 			if(inst == I_ACC && state == S_PROC) begin
-				data_acc[data_a[3:0]] <= data_acc_nxt;
+				data_acc[data_a[3:0]] <= data_acc_nxt[ACC_SIZE-1:0];
 			end
 		end
 	end
