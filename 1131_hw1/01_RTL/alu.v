@@ -39,6 +39,8 @@ module alu #(
 	// parameter ONE_NINTH = {{2'b0}, {30'b000100010001000100010001000100}};
 	parameter ONE_THIRD = {{2'b0}, {14'b01010101010101}};
 	parameter ONE_NINTH = {{2'b0}, {14'b00011100011100}};
+	// parameter ONE_THIRD = 16'b1010101010101011;
+	// parameter ONE_NINTH = 16'b1110001110001111;
 
 	parameter ACC_SIZE = 21;
     // Wires and Regs
@@ -136,15 +138,15 @@ module alu #(
 					end
 					else begin
 						if (data_a[DATA_W-1] == 1'b0 ) begin	// data_a >= 0
-							o_data_tmp = ((data_a) + 16'sb0000_0100_0000_0000)*$signed(ONE_THIRD);
-							shift_amount = 1;
+							o_data_tmp = ((data_a << 1) + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
+							// shift_amount = 1;
 						end
 						else if (data_a >= 14'sb11_1100_0000_0000) begin
 							o_data_tmp = (data_a + 16'sb0000_1000_0000_0000)*$signed(ONE_THIRD);
 						end
 						else if (data_a >= 14'sb11_1000_0000_0000) begin
-							o_data_tmp = ((data_a) + 16'sb0000_1010_0000_0000)*$signed(ONE_NINTH);
-							shift_amount = 1;
+							o_data_tmp = ((data_a << 1) + 16'sb0001_0100_0000_0000)*$signed(ONE_NINTH);
+							// shift_amount = 1;
 						end
 						else begin // (o_data_tmp >= -3)
 							o_data_tmp = (data_a + 16'sb0000_1100_0000_0000)*$signed(ONE_NINTH);
