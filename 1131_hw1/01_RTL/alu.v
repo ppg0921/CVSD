@@ -181,7 +181,7 @@ module alu #(
 					o_data_nxt = o_data_tmp[2*DATA_W-1-(data_b[4:0]) -: DATA_W];
 				end
 				I_CLZ: begin
-					o_data_tmp = 0;
+					o_data_tmp = -1;
 					for (j=0; j<DATA_W; j=j+1) begin
 						if(data_a[j] != 1'b0)
 							o_data_tmp = j;
