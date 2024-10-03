@@ -8,27 +8,29 @@ module register_file #(
   input i_rst_n,
   input i_wen,
   input i_float,
+  input i_w_int,
+  input i_r_int,
   input [ADDR_WIDTH-1:0] i_rs1,
   input [ADDR_WIDTH-1:0] i_rs2,
   input [ADDR_WIDTH-1:0] i_rd,
-  input [DATA_W-1:0] i_wdata,
-  output [DATA_W-1:0] o_rdata1,
-  output [DATA_W-1:0] o_rdata2
+  input [DATA_WIDTH-1:0] i_wdata,
+  output [DATA_WIDTH-1:0] o_rdata1,
+  output [DATA_WIDTH-1:0] o_rdata2
 );
   
   reg signed [DATA_WIDTH-1:0] ireg [0:REG_SIZE-1];
   reg signed [DATA_WIDTH-1:0] ireg_nxt;
   reg [DATA_WIDTH-1:0] freg [0:REG_SIZE-1];
-  reg signed [DATA_WIDTH-1:0] freg_nxt [0:REG_SIZE-1];
+  reg signed [DATA_WIDTH-1:0] freg_nxt;
 
   integer i;
 
-  assign o_rdata1 = (i_float)? freg[i_rs1] : ireg[i_rs1];
+  assign o_rdata1 = (i_float && !i_r_int)? freg[i_rs1] : ireg[i_rs1];
   assign o_rdata2 = (i_float)? freg[i_rs2] : ireg[i_rs2];
 
   always @(*) begin
-    ireg_nxt = (i_wen && !i_float) ? i_wdata : ireg[i_rd];
-    freg_nxt = (i_wen && i_float) ? i_wdata : freg[i_rd];
+    ireg_nxt = (i_wen && (!i_float || i_w_int)) ? i_wdata : ireg[i_rd];
+    freg_nxt = (i_wen && i_float && !i_w_int) ? i_wdata : freg[i_rd];
   end
 
   always @(posedge i_clk or negedge i_rst_n) begin

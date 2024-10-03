@@ -39,6 +39,7 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 	localparam ALU_FADD = 3'd4;
 	localparam ALU_FSUB = 3'd5;
 	localparam ALU_FCLASS = 3'd6;
+	localparam ALU_FLESS = 3'd7;
 
 
 
@@ -48,19 +49,20 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 // ---------------------------------------------------------------------------
 // ---- Add your own wires and registers here if needed ---- //
 	reg [3:0] state, state_nxt;
-	reg signed [9:0] PC, PC_nxt;
+	reg signed [13:0] PC, PC_nxt;
 	reg [2:0] status, status_nxt;
 	reg [DATA_WIDTH-1:0] inst, inst_nxt;
-	reg signed [DATA_WIDTH-1:0] reg_rdata1, reg_rdata2;
-	reg PC_out_of_range;
-
+	reg [DATA_WIDTH-1:0] ImmGen;
+	
+	wire PC_out_of_range;
+	wire signed [DATA_WIDTH-1:0] reg_rdata1, reg_rdata2;
 	wire signed [DATA_WIDTH-1:0] reg_wdata;
-	wire [DATA_WIDTH-1:0] alu_data, ImmGen;
+	wire [DATA_WIDTH-1:0] alu_data;
 	wire [DATA_WIDTH-1:0] data_mem_rdata, data_mem_wdata;
-	wire now_inst = (state == S_INST_DECODE)? inst_nxt: inst;
-	wire OPCODE = now_inst[6:0];
-	wire isEOF = (OPCODE == `OP_EOF)? 1:0;
-	wire alu_invalid, alu_done;
+	wire [DATA_WIDTH-1:0] now_inst;
+	wire [6:0] OPCODE;
+	wire isEOF;
+	wire alu_invalid, alu_done, alu_comp;
 	reg is_float_reg, RegWrite, Branch, MemtoReg, MemWrite, ALUSrc, MemRead;
 	reg [2:0] ALUOp;
 	reg [1:0] ALUCtrl;
@@ -73,26 +75,28 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 	register_file reg0 (
 		.i_clk(i_clk),
 		.i_rst_n(i_rst_n),
-		.i_wen(RegWrite),
+		.i_wen(RegWrite && state == S_WB_PC),
 		.i_float(is_float_reg),
-		.i_rs1(instruction[19:15]),
-		.i_rs2(instruction[24:20]),
-		.i_rd(instruction[11:7]),
+		.i_w_int(OPCODE==`OP_FADD && now_inst[31:25] == `FUNCT7_FCLASS),	// if FCLASS
+		.i_r_int(OPCODE==`OP_FLW || OPCODE==`OP_FSW),	// if FLW or FSW
+		.i_rs1(now_inst[19:15]),
+		.i_rs2(now_inst[24:20]),
+		.i_rd(now_inst[11:7]),
 		.i_wdata(reg_wdata),
 		.o_rdata1(reg_rdata1),
 		.o_rdata2(reg_rdata2)
-	)
+	);
 
 	ALU alu0 (
 		.i_clk(i_clk),
 		.i_rst_n(i_rst_n),
-		.i_valid(state==S_ALU),
+		.i_valid(state == S_ALU),
 		.i_data_a(reg_rdata1),
 		.i_data_b((ALUSrc)? ImmGen:reg_rdata2),
 		.i_ALUOp(ALUOp),
 		.i_ALUctrl(ALUCtrl),
 		.o_data(alu_data),
-		.o_comp(),
+		.o_comp(alu_comp),
 		.o_invalid(alu_invalid),
 		.o_done(alu_done)
 	);
@@ -102,10 +106,20 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 // Continuous Assignment
 // ---------------------------------------------------------------------------
 // ---- Add your own wire data assignments here if needed ---- //
+	// Data memory
 	assign o_addr = (state == S_INST_FETCH)? PC: alu_data[ADDR_WIDTH-1:0];
 	assign o_wdata = reg_rdata2;
 	assign o_we = (state == S_LOAD_STORE && MemWrite)? 1:0;
-	assign reg_wdata = (MemtoReg)? data_mem_rdata: alu_data;
+	// aluctrl = 1 for blt, slt, flt. But RegWrite = 0 for blt
+	assign reg_wdata = (MemtoReg)? i_rdata: ((ALUCtrl == 1)? alu_comp : alu_data);
+	assign o_status_valid = (state == S_STATUS)? 1:0;
+	assign o_status = status;
+	assign now_inst = (state == S_INST_DECODE)? inst_nxt: inst;
+	assign OPCODE = now_inst[6:0];
+	assign isEOF = (OPCODE == `OP_EOF)? 1:0;
+	assign PC_out_of_range = (PC > 4095 || PC < 0)? 1:0;
+	
+
 
 
 // ---------------------------------------------------------------------------
@@ -116,12 +130,8 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 	// PC
 	always @(*) begin
 		PC_nxt = PC;
-		PC_out_of_range = 0;
 		if(state==S_WB_PC) begin
-			PC_nxt = (Branch && alu_data)? PC + (ImmGen << 1): PC + 4;
-			if(PC_nxt > 1023 || PC_nxt < 0) begin
-				PC_out_of_range = 1;
-			end
+			PC_nxt = (Branch && alu_comp)? PC + (ImmGen): PC + 4;
 		end
 	end
 	// Inst fetch
@@ -209,7 +219,7 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 				status_nxt = 2;
 		end
 		else if (OPCODE == `OP_BEQ) begin	// B type
-			ImmGen = {{19{now_inst[31]}}, now_inst[31], now_inst[7], now_inst[30:25], now_inst[11:8]};
+			ImmGen = {{19{now_inst[31]}}, now_inst[31], now_inst[7], now_inst[30:25], now_inst[11:8], 1'b0};
 			if(state == S_INST_DECODE)
 				status_nxt = 3;
 		end
@@ -220,7 +230,7 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 		if(isEOF) begin
 			status_nxt = 5;
 		end
-		else if(alu_invalid) begin
+		else if(alu_invalid || PC_out_of_range) begin
 			status_nxt = 4;
 		end
 	end
@@ -234,6 +244,9 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 			end
 			S_INST_FETCH: begin
 				state_nxt = S_INST_DECODE;
+				if(PC_out_of_range) begin
+					state_nxt = S_DONE;
+				end
 			end
 			S_INST_DECODE: begin
 				if(isEOF)	state_nxt = S_STATUS;
@@ -253,9 +266,11 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 				state_nxt = S_STATUS;
 			end
 			S_STATUS: begin
-				
+				if(status == 4 || status == 5)	state_nxt = S_DONE;
+				else state_nxt = S_INST_FETCH;
 			end
 			S_DONE: begin
+				state_nxt = S_DONE;
 			end
 		endcase
 	end
@@ -267,9 +282,15 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 	always @(posedge i_clk or negedge i_rst_n) begin
 		if(!i_rst_n) begin
 			inst <= 0;
+			PC <= 0;
+			status <= 0;
+			state <= S_IDLE;
 		end
 		else begin
 			inst <= inst_nxt;
+			PC <= PC_nxt;
+			status <= status_nxt;
+			state <= state_nxt;
 		end
 	end
 
@@ -307,7 +328,7 @@ module ALU #(
 	localparam S_INVALID = 3'd3;
 
 	reg [2:0] state, state_nxt;
-	reg signed [DATA_WIDTH: 0] o_data_reg, o_data_nxt, o_data_tmp;
+	reg signed [DATA_WIDTH: 0] o_data_reg, o_data_nxt;
 	reg o_comp_reg, o_comp_nxt;
 	reg [25:0] mant_sum, mant_sum_nxt, mant_sum_tmp;
 	reg result_sign, result_sign_nxt;
@@ -330,8 +351,9 @@ module ALU #(
 	assign mant_b = (exp_b == 8'b0)? {i_data_b[22:0], 1'b0, 1'b0} : {1'b1, i_data_b[22:0], 1'b0}; // Implicit leading 1 for normalized numbers
 	assign mant_a_shifted = (exp_a >= exp_b) ? {mant_a} : (mant_a >> exp_diff);
   assign mant_b_shifted = (exp_b >= exp_a) ? {mant_b} : (mant_b >> exp_diff);
-	assign INFNaN = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB) && ((exp_a == 8'b11111111) || (exp_b == 8'b11111111));
-	assign abzero = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB) && ((i_data_a[DATA_WIDTH-2:0] == (DATA_WIDTH-1){1'b0}) || (i_data_b[DATA_WIDTH-2:0] == (DATA_WIDTH-1){1'b0}));
+	// INPNaN will only be true for FADD, FSUB, FLESS
+	assign INFNaN = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB || i_ALUOp == ALU_FLESS) && ((exp_a == 8'b11111111) || (exp_b == 8'b11111111));
+	assign abzero = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB) && ((i_data_a[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) || (i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}));
 
 	//! need modify(won't hold value to the next clock)
 	assign o_invalid = (state == S_INVALID);
@@ -374,43 +396,42 @@ module ALU #(
 
 	always @(*) begin
 		o_data_nxt = o_data_reg;
-		o_data_tmp = 0;
 		overflow = 0;
-		o_comp_nxt = 0;
+		o_comp_nxt = o_comp_reg;
 		result_sign_nxt = result_sign;
 		shift_done = 0;
 		mant_sum_nxt = mant_sum;
 		mant_sum_tmp = mant_sum;
 		exp_result_nxt = exp_result;
-		o_comp_nxt = 0;
 		//! need modify if(i_valid)
 		if(i_valid && state == S_IDLE) begin
+			o_comp_nxt = 0;
 			case(i_ALUOp)
 				ALU_ADD: begin
 					o_data_nxt = i_data_a + i_data_b;
-					if((i_data_a[DATA_W-1] == i_data_b[DATA_W-1]) && (i_data_a[DATA_W-1] != o_data_nxt[DATA_W-1])) begin
+					if((i_data_a[DATA_WIDTH-1] == i_data_b[DATA_WIDTH-1]) && (i_data_a[DATA_WIDTH-1] != o_data_nxt[DATA_WIDTH-1])) begin
 						overflow = 1;
 					end
-					else if(i_ALUctrl == 2 && (o_data_nxt > 1023 || o_data_nxt < 0)) begin	// address out of range
+					else if(i_ALUctrl == 2 && (o_data_nxt > 8191 || o_data_nxt < 4096)) begin	// address out of range
 						overflow = 1;
 					end
 				end
 				ALU_SUB: begin
-					o_data_tmp = i_data_a - i_data_b;
+					o_data_nxt = i_data_a - i_data_b;
 					if(i_ALUctrl == 0) begin
-						o_data_nxt = (o_data_tmp == 0)? 1:0;
+						o_comp_nxt = (o_data_nxt == 0)? 1:0;
 					end
 					else if(i_ALUctrl == 1) begin
 						if(i_data_a[DATA_WIDTH-1] == i_data_b[DATA_WIDTH-1]) begin	// no overflow
-							if(o_data_tmp[DATA_WIDTH-1] == 1)	// a-b < 0--> a < b
-								o_data_nxt = 1;
+							if(o_data_nxt[DATA_WIDTH-1] == 1)	// a-b < 0--> a < b
+								o_comp_nxt = 1;
 						end
 						else if(i_data_a[DATA_WIDTH-1] == 1 && i_data_b[DATA_WIDTH-1] == 0) // a neg, b pos --> a < b
-							o_data_nxt = 1;
+							o_comp_nxt = 1;
 					end
 					else begin	// aluctrl = 3
-						o_data_nxt = o_data_tmp;
-						if((i_data_a[DATA_W-1] != i_data_b[DATA_W-1]) && i_data_a[DATA_W-1] != o_data_nxt[DATA_W-1]) begin
+						// o_data_nxt = o_data_tmp;
+						if((i_data_a[DATA_WIDTH-1] != i_data_b[DATA_WIDTH-1]) && i_data_a[DATA_WIDTH-1] != o_data_nxt[DATA_WIDTH-1]) begin
 							overflow = 1;
 						end
 					end
@@ -424,12 +445,12 @@ module ALU #(
 				end
 				ALU_FADD, ALU_FSUB: begin
 					// a == 0 or b == 0
-					if(i_data_a[DATA_WIDTH-2:0] == (DATA_WIDTH-1){1'b0}) begin
+					if(i_data_a[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) begin
 						o_data_nxt = i_data_b;
 						shift_done = 1;
 					end
 						
-					else if(i_data_b[DATA_WIDTH-2:0] == (DATA_WIDTH-1){1'b0}) begin
+					else if(i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) begin
 						o_data_nxt = i_data_a;
 						shift_done = 1;
 					end
@@ -462,44 +483,60 @@ module ALU #(
 					end
 				end
 				ALU_FCLASS: begin
-					//Todo
+					if(exp_a == 255 && mant_a != 0) o_data_nxt = `FLOAT_NAN;
+					else if(sign_a == 0) begin // positive
+						if(exp_a > 0 && exp_a < 255) o_data_nxt = `FLOAT_POS_NORM;
+						else if(exp_a == 255 && mant_a == 0) o_data_nxt = `FLOAT_POS_INF;
+						else if(exp_a == 0 && mant_a == 0) o_data_nxt = `FLOAT_POS_ZERO;
+						else o_data_nxt = `FLOAT_POS_SUBNORM;
+					end
+					else begin	// negative
+						if(exp_a > 0 && exp_a < 255) o_data_nxt = `FLOAT_NEG_NORM;
+						else if(exp_a == 255 && mant_a == 0) o_data_nxt = `FLOAT_NEG_INF;
+						else if(exp_a == 0 && mant_a == 0) o_data_nxt = `FLOAT_NEG_ZERO;
+						else o_data_nxt = `FLOAT_NEG_SUBNORM;
+					end
 				end
 				ALU_FLESS: begin
-					if(sign_a == 1 && sign_b == 0) begin	// a<0, b>0
-						o_data_nxt = 1;
+					// both a, b = 0
+					o_comp_nxt = 0;
+					if((i_data_a[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) && (i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}))
+						o_comp_nxt = 0;
+					else if(sign_a == 1 && sign_b == 0) begin	// a<0, b>0
+						o_comp_nxt = 1;
 					end
 					else if(sign_a == 0 && sign_b == 1) begin // a>0, b<0
-						o_data_nxt = 0;
+						o_comp_nxt = 0;
 					end
 					else if(sign_a == 0 && sign_b == 0) begin	// a, b>0
 						if(exp_a > exp_b) begin
-							o_data_nxt = 0;
+							o_comp_nxt = 0;
 						end
 						else if(exp_a < exp_b) begin
-							o_data_nxt = 1;
+							o_comp_nxt = 1;
 						end
-						else begin
-							if(mant_a > mant_b) begin	// same exponent
-								o_data_nxt = 0;
+						else begin									// same exponent
+							if(mant_a >= mant_b) begin	
+								o_comp_nxt = 0;
 							end
 							else begin
-								o_data_nxt = 1;
+								o_comp_nxt = 1;
 							end
 						end
 					end
 					else if(sign_a == 1 && sign_b == 1) begin
 						if(exp_a > exp_b) begin
-							o_data_nxt = 1;
+							o_comp_nxt = 1;
 						end
 						else if(exp_a < exp_b) begin
-							o_data_nxt = 0;
+							o_comp_nxt = 0;
 						end
 						else begin
 							if(mant_a > mant_b) begin
-								o_data_nxt = 1;
+								o_comp_nxt = 1;
 							end
 							else begin
-								o_data_nxt = 0;
+								o_comp_nxt = 0;
 							end
 						end
 					end
@@ -522,7 +559,7 @@ module ALU #(
 				exp_result_nxt = exp_result - 1;
 			end
 			if(shift_done) begin // shift done, start rounding
-				if(exponent == 0) begin		// take m to be mant[24:2]
+				if(exp_result == 0) begin		// take m to be mant[24:2]
 					if(mant_sum[1:0] == 2'b11 || mant_sum[2:1] == 2'b11) begin	// increase
 						mant_sum_nxt = (mant_sum + 3'b100) >> 1;
 						if(mant_sum_nxt[24] == 1) begin
@@ -554,6 +591,7 @@ module ALU #(
 
 	always @(posedge i_clk or negedge i_rst_n) begin
 		if(!i_rst_n) begin
+			state <= S_IDLE;
 			o_data_reg <= 0;
 			mant_sum <= 0;
 			o_comp_reg <= 0;
@@ -561,12 +599,12 @@ module ALU #(
 			exp_result <= 0;
 		end
 		else begin
+			state <= state_nxt;
 			o_data_reg <= o_data_nxt; 
 			mant_sum <= mant_sum_nxt;
 			result_sign <= result_sign_nxt;
 			exp_result <= exp_result_nxt;
 			o_comp_reg <= o_comp_nxt;
-
 		end
 	end
 endmodule
