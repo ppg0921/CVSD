@@ -48,7 +48,7 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 // Wires and Registers
 // ---------------------------------------------------------------------------
 // ---- Add your own wires and registers here if needed ---- //
-	reg [3:0] state, state_nxt;
+	reg [2:0] state, state_nxt;
 	reg signed [13:0] PC, PC_nxt;
 	reg [2:0] status, status_nxt;
 	reg [DATA_WIDTH-1:0] inst, inst_nxt;
@@ -208,7 +208,13 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 	always @(*) begin
 		ImmGen = 0;
 		status_nxt = status;
-		if(OPCODE == `OP_ADDI || OPCODE == `OP_LW || OPCODE == `OP_FLW) begin // I type
+		if(isEOF) begin
+			status_nxt = 5;
+		end
+		else if(alu_invalid || PC_out_of_range) begin
+			status_nxt = 4;
+		end
+		else if(OPCODE == `OP_ADDI || OPCODE == `OP_LW || OPCODE == `OP_FLW) begin // I type
 			ImmGen = {{20{now_inst[31]}}, now_inst[31:20]};
 			if(state == S_INST_DECODE)
 				status_nxt = 1;
@@ -227,17 +233,13 @@ module core #( // DO NOT MODIFY INTERFACE!!!
 			if(state == S_INST_DECODE)
 				status_nxt = 0;
 		end
-		if(isEOF) begin
-			status_nxt = 5;
-		end
-		else if(alu_invalid || PC_out_of_range) begin
-			status_nxt = 4;
-		end
+		
 	end
 
 
 	//FSM
 	always @(*) begin
+		state_nxt = state;
 		case(state)
 			S_IDLE: begin
 				state_nxt = S_INST_FETCH;
@@ -330,7 +332,7 @@ module ALU #(
 	reg [2:0] state, state_nxt;
 	reg signed [DATA_WIDTH: 0] o_data_reg, o_data_nxt;
 	reg o_comp_reg, o_comp_nxt;
-	reg [25:0] mant_sum, mant_sum_nxt, mant_sum_tmp;
+	reg [49:0] mant_sum, mant_sum_nxt, mant_sum_tmp;
 	reg result_sign, result_sign_nxt;
 	reg [8:0] exp_result, exp_result_nxt;
 	reg shift_done, invalid, overflow;
@@ -338,7 +340,9 @@ module ALU #(
 	// for floating point calculation
 	wire sign_a, sign_b;
 	wire [7:0] exp_a, exp_b, exp_diff, exp_bigger;
-	wire [24:0] mant_a, mant_b, mant_a_shifted, mant_b_shifted;
+	wire [48:0] mant_a, mant_b;
+	reg [48:0] mant_a_shifted, mant_b_shifted;
+	reg sticky;
 	wire INFNaN, abzero;
 
 	assign sign_a = i_data_a[DATA_WIDTH-1];
@@ -347,10 +351,9 @@ module ALU #(
 	assign exp_b = i_data_b[30:23];
 	assign exp_diff = (exp_a > exp_b) ? (exp_a - exp_b) : (exp_b - exp_a);
 	assign exp_bigger = (exp_a > exp_b)? exp_a: exp_b;
-	assign mant_a = (exp_a == 8'b0)? {i_data_a[22:0], 1'b0, 1'b0} : {1'b1, i_data_a[22:0], 1'b0}; // Implicit leading 1 for normalized numbers
-	assign mant_b = (exp_b == 8'b0)? {i_data_b[22:0], 1'b0, 1'b0} : {1'b1, i_data_b[22:0], 1'b0}; // Implicit leading 1 for normalized numbers
-	assign mant_a_shifted = (exp_a >= exp_b) ? {mant_a} : (mant_a >> exp_diff);
-  assign mant_b_shifted = (exp_b >= exp_a) ? {mant_b} : (mant_b >> exp_diff);
+	assign mant_a = (exp_a == 8'b0)? {i_data_a[22:0], 1'b0, 25'b0} : {1'b1, i_data_a[22:0], 25'b0}; // Implicit leading 1 for normalized numbers
+	assign mant_b = (exp_b == 8'b0)? {i_data_b[22:0], 1'b0, 25'b0} : {1'b1, i_data_b[22:0], 25'b0}; // Implicit leading 1 for normalized numbers
+
 	// INPNaN will only be true for FADD, FSUB, FLESS
 	assign INFNaN = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB || i_ALUOp == ALU_FLESS) && ((exp_a == 8'b11111111) || (exp_b == 8'b11111111));
 	assign abzero = (i_ALUOp == ALU_FADD || i_ALUOp == ALU_FSUB) && ((i_data_a[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) || (i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}));
@@ -392,6 +395,32 @@ module ALU #(
 				state_nxt = S_IDLE;
 			end
 		endcase
+	end
+
+	// manta, mantb shifted
+	always @(*) begin
+		sticky = 0;
+		if(exp_a >= exp_b) begin
+			if(exp_diff > 25 && exp_diff < 48) begin
+				sticky = |(mant_b << (49-exp_diff));
+			end
+			else if(exp_diff >= 48) begin
+				sticky = |mant_b;
+			end
+			mant_a_shifted = mant_a;
+			mant_b_shifted = (mant_b >> exp_diff) | {{48'b0}, sticky};
+		end
+		else begin
+			if(exp_diff > 25 && exp_diff < 48) begin
+				sticky = |(mant_a << (49-exp_diff));
+			end
+			else if(exp_diff >= 48) begin
+				sticky = |mant_a;
+			end
+			mant_a_shifted = (mant_a >> exp_diff) | {{48'b0}, sticky};
+			mant_b_shifted = mant_b;
+		end
+
 	end
 
 	always @(*) begin
@@ -441,12 +470,15 @@ module ALU #(
 					o_data_nxt = i_data_a << $unsigned(i_data_b);
 				end
 				ALU_SR: begin
-					o_data_nxt = i_data_a >> $unsigned(i_data_b);
+					o_data_nxt = $unsigned(i_data_a) >> $unsigned(i_data_b);
 				end
 				ALU_FADD, ALU_FSUB: begin
 					// a == 0 or b == 0
 					if(i_data_a[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) begin
-						o_data_nxt = i_data_b;
+						if(i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}})	// a==0, b==0
+							o_data_nxt = {(DATA_WIDTH-1){1'b0}};
+						else
+							o_data_nxt = i_data_b;
 						shift_done = 1;
 					end
 						
@@ -468,7 +500,7 @@ module ALU #(
 								result_sign_nxt = sign_b;
 							end
     				end
-						if(mant_sum_tmp[25] == 1'b1) begin
+						if(mant_sum_tmp[49] == 1'b1) begin
 							exp_result_nxt = exp_bigger + 1;
 							mant_sum_nxt = mant_sum_tmp >> 1;
 							if(exp_result_nxt == 255) begin
@@ -509,35 +541,13 @@ module ALU #(
 						o_comp_nxt = 0;
 					end
 					else if(sign_a == 0 && sign_b == 0) begin	// a, b>0
-						if(exp_a > exp_b) begin
-							o_comp_nxt = 0;
-						end
-						else if(exp_a < exp_b) begin
+						if(exp_a < exp_b || (exp_a == exp_b && mant_a < mant_b)) begin
 							o_comp_nxt = 1;
-						end
-						else begin									// same exponent
-							if(mant_a >= mant_b) begin	
-								o_comp_nxt = 0;
-							end
-							else begin
-								o_comp_nxt = 1;
-							end
 						end
 					end
-					else if(sign_a == 1 && sign_b == 1) begin
-						if(exp_a > exp_b) begin
+					else if(sign_a == 1 && sign_b == 1) begin	// a, b<0
+						if(exp_a > exp_b || (exp_a == exp_b && mant_a > mant_b)) begin
 							o_comp_nxt = 1;
-						end
-						else if(exp_a < exp_b) begin
-							o_comp_nxt = 0;
-						end
-						else begin
-							if(mant_a > mant_b) begin
-								o_comp_nxt = 1;
-							end
-							else begin
-								o_comp_nxt = 0;
-							end
 						end
 					end
 				end
@@ -551,7 +561,7 @@ module ALU #(
 			else if(exp_result == 0) begin	// can be shift no more
 				shift_done = 1;
 			end
-			else if(mant_sum[24] == 1) begin	// find 1
+			else if(mant_sum[48] == 1) begin	// find 1
 				shift_done = 1;
 			end
 			else if(exp_result >= 1) begin		// not 1 but can still be shifted
@@ -559,17 +569,17 @@ module ALU #(
 				exp_result_nxt = exp_result - 1;
 			end
 			if(shift_done) begin // shift done, start rounding
-				if(exp_result == 0) begin		// take m to be mant[24:2]
-					if(mant_sum[1:0] == 2'b11 || mant_sum[2:1] == 2'b11) begin	// increase
-						mant_sum_nxt = (mant_sum + 3'b100) >> 1;
-						if(mant_sum_nxt[24] == 1) begin
+				if(exp_result == 0) begin		// take m to be mant[48:26]
+					if({mant_sum[25], {|mant_sum[24:0]}} == 2'b11 || mant_sum[26:25] == 2'b11) begin	// increase
+						mant_sum_nxt = (mant_sum + (1'b1 << 25)) >> 1;
+						if(mant_sum_nxt[48] == 1) begin
 							exp_result_nxt = 1;
 						end
 					end
 				end
-				else if(mant_sum[1:0] == 2'b11) begin	// m is mant[23:1]
-					mant_sum_tmp = mant_sum + 2'b10;
-					if(mant_sum_nxt[25] == 1) begin
+				else if({mant_sum[24], {|mant_sum[23:0]}} == 2'b11 || mant_sum[25:24] == 2'b11) begin	// m is mant[47:25]
+					mant_sum_tmp = mant_sum + 3'b100;
+					if(mant_sum_nxt[49] == 1) begin
 						if(exp_result == 254) begin
 							overflow = 1;
 						end
@@ -581,7 +591,7 @@ module ALU #(
 					else
 						mant_sum_nxt = mant_sum_tmp;
 				end
-				o_data_nxt = {result_sign, exp_result_nxt[7:0], mant_sum_nxt[23:1]};
+				o_data_nxt = {result_sign, exp_result_nxt[7:0], mant_sum_nxt[47:25]};
 			end
 		
 			
@@ -608,14 +618,3 @@ module ALU #(
 		end
 	end
 endmodule
-
-// module Program_counter #(
-// 	parameter MAX_ADDR = 1023,
-// 	parameter MIN_ADDR = 0
-// ) (
-// 	input i_clk,
-// 	input i_rst_n,
-// 	input 
-// );
-	
-// endmodule

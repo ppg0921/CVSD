@@ -10,25 +10,25 @@
 
 
 `ifdef p0
-    `define Inst "../00_TB/PATTERN/p0/inst.dat"
-		`define GOLDEN_DATA "../00_TB/PATTERN/p0/data.dat"
-		`define GOLDEN_STATUS "../00_TB/PATTERN/p0/status.dat"
+    `define Inst "../00_TB/PATTERN_v3/p0/inst.dat"
+		`define GOLDEN_DATA "../00_TB/PATTERN_v3/p0/data.dat"
+		`define GOLDEN_STATUS "../00_TB/PATTERN_v3/p0/status.dat"
 `elsif p1
-    `define Inst "../00_TB/PATTERN/p1/inst.dat"
-		`define GOLDEN_DATA "../00_TB/PATTERN/p1/data.dat"
-		`define GOLDEN_STATUS "../00_TB/PATTERN/p1/status.dat"
+    `define Inst "../00_TB/PATTERN_v3/p1/inst.dat"
+		`define GOLDEN_DATA "../00_TB/PATTERN_v3/p1/data.dat"
+		`define GOLDEN_STATUS "../00_TB/PATTERN_v3/p1/status.dat"
 `elsif p2
-	`define Inst "../00_TB/PATTERN/p2/inst.dat"
-	`define GOLDEN_DATA "../00_TB/PATTERN/p2/data.dat"
-	`define GOLDEN_STATUS "../00_TB/PATTERN/p2/status.dat"
+	`define Inst "../00_TB/PATTERN_v3/p2/inst.dat"
+	`define GOLDEN_DATA "../00_TB/PATTERN_v3/p2/data.dat"
+	`define GOLDEN_STATUS "../00_TB/PATTERN_v3/p2/status.dat"
 `elsif p3
-	`define Inst "../00_TB/PATTERN/p3/inst.dat"
-	`define GOLDEN_DATA "../00_TB/PATTERN/p3/data.dat"
-	`define GOLDEN_STATUS "../00_TB/PATTERN/p3/status.dat"
+	`define Inst "../00_TB/PATTERN_v3/p3/inst.dat"
+	`define GOLDEN_DATA "../00_TB/PATTERN_v3/p3/data.dat"
+	`define GOLDEN_STATUS "../00_TB/PATTERN_v3/p3/status.dat"
 `else
-	`define Inst "../00_TB/PATTERN/p0/inst.dat"
-	`define GOLDEN_DATA "../00_TB/PATTERN/p0/data.dat"
-	`define GOLDEN_STATUS "../00_TB/PATTERN/p0/status.dat"
+	`define Inst "../00_TB/PATTERN_v3/p0/inst.dat"
+	`define GOLDEN_DATA "../00_TB/PATTERN_v3/p0/data.dat"
+	`define GOLDEN_STATUS "../00_TB/PATTERN_v3/p0/status.dat"
 `endif
 
 module testbed;
@@ -147,7 +147,7 @@ module testbed;
 			#(`CYCLE);
 			@(negedge clk);
 			if (dmem_rdata !== golden_data[j]) begin
-				$display("Error! Data mismatch at address %d. Expected: %d, Got: %d",
+				$display("Error! Data mismatch at address %d. Expected: %b, Got: %b",
 				 j*4-4096, golden_data[j], dmem_rdata);
 				error = error + 1;
 			end
