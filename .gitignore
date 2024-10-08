@@ -6,7 +6,12 @@
 *.key
 *.conf
 *.fsdb
+*.rc
+simv
 simv.daidir/
 nWaveLog/
 csrc/
 BSSLib.lib++/
+b11901091_hw[0-9]/
+spyglass-[0-9]/
+INCA_libs/

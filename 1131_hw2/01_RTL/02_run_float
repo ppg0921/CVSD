@@ -1,0 +1,1 @@
+vcs -full64 -R -f rtl_float.f +v2k -y /usr/cad/synopsys/synthesis/cur/dw/sim_ver +libext+.v -sverilog -debug_access+all +define+$1 | tee sim.log

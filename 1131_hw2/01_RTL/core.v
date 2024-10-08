@@ -576,9 +576,12 @@ module ALU #(
 							exp_result_nxt = 1;
 						end
 					end
+					else begin
+						mant_sum_nxt = mant_sum >> 1;
+					end
 				end
 				else if({mant_sum[24], {|mant_sum[23:0]}} == 2'b11 || mant_sum[25:24] == 2'b11) begin	// m is mant[47:25]
-					mant_sum_tmp = mant_sum + 3'b100;
+					mant_sum_tmp = mant_sum + (1'b1 << 24);
 					if(mant_sum_nxt[49] == 1) begin
 						if(exp_result == 254) begin
 							overflow = 1;
