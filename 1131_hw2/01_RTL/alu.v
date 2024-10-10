@@ -183,10 +183,9 @@ module ALU #(
 						if(i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}})	// a==0, b==0
 							o_data_nxt = {(DATA_WIDTH-1){1'b0}};
 						else
-							o_data_nxt = i_data_b;
+							o_data_nxt = {sign_b, i_data_b[30:0]};
 						shift_done = 1;
 					end
-						
 					else if(i_data_b[DATA_WIDTH-2:0] == {(DATA_WIDTH-1){1'b0}}) begin
 						o_data_nxt = i_data_a;
 						shift_done = 1;
@@ -211,6 +210,12 @@ module ALU #(
 							if(exp_result_nxt == 255) begin
 								overflow = 1;
 							end
+						end
+						else if (mant_sum_tmp == 0)	begin// result is 0
+							exp_result_nxt = 0;
+							mant_sum_nxt = 0;
+							shift_done = 1;
+							o_data_nxt = {(DATA_WIDTH-1){1'b0}};
 						end
 						else begin
 							exp_result_nxt = exp_bigger;
@@ -287,7 +292,7 @@ module ALU #(
 				end
 				else if({mant_sum[24], {|mant_sum[23:0]}} == 2'b11 || mant_sum[25:24] == 2'b11) begin	// m is mant[47:25]
 					mant_sum_tmp = mant_sum + (1'b1 << 24);
-					if(mant_sum_nxt[49] == 1) begin
+					if(mant_sum_tmp[49] == 1) begin
 						if(exp_result == 254) begin
 							overflow = 1;
 						end
