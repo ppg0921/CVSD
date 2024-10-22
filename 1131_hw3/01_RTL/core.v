@@ -25,7 +25,8 @@ module core (                       //Don't modify interface
 	localparam S_OP_WAIT = 4'd8;
 	localparam S_DIS_PREP = 4'd9;
 	localparam S_DIS_GET_LAST = 4'd10;
-	localparam S_DIS_OUTPUT = 4'd11;
+	localparam S_OUTPUT = 4'd11;
+	localparam S_CONV_OUTPUT = 4'd12;
 
 	localparam OP_LOAD = 4'd0;
 	localparam OP_RIGHT = 4'd1;
@@ -50,15 +51,20 @@ module core (                       //Don't modify interface
 	reg [2:0] origin_x, origin_x_nxt;
 	reg [2:0] origin_y, origin_y_nxt;
 	reg [10:0] cnt, cnt_nxt;
-	reg [1:0] cnt_display, cnt_display_nxt;
+	reg [2:0] cnt_display, cnt_display_nxt;
 	reg [3:0] operation_nxt, operation;
 	reg [13:0] out_data, out_data_nxt;
 	reg out_valid, out_valid_nxt;
+	reg [4:0] acc_ori_addr;
+	reg sram_op_valid [0:3], sram_op_valid_nxt[0:3];
+	reg [11:0] conv_result[0:3], conv_result_nxt[0:3];
+	reg [7:0] conv_last_result, conv_last_result_nxt;
 
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
-	reg [7:0] SRAM_Q [0:3];
-	wire [7:0] SRAM_D [0:3];
+	wire [7:0] SRAM_Q [0:3];		// output data
+	wire [7:0] SRAM_Q_real [0:3];	// output data condisering valid
+	reg [7:0] SRAM_D [0:3];		// input data
 	reg [11:0] SRAM_A [0:3];
 	reg [7:0] load_add_offset, load_add_offset_nxt;	// for load operation and also for display channel offset
 	wire signed [2:0] sram_idx [0:3];
@@ -120,14 +126,25 @@ module core (                       //Don't modify interface
 	assign o_op_ready = (state == S_OP_READY) ? 1 : 0;
 	assign o_in_ready = (state == S_LOAD_READY || state == S_LOAD) ? 1 : 0;	//! need modification
 
+	// which SRAM to read 
 	assign sram_idx[0] = (origin_x > 4)? origin_x - 5 : origin_x - 1;		// if origin_x = 0, then sram_idx[0] = -1
 	assign sram_idx[1] = (origin_x > 3)? origin_x - 4 : origin_x;				// sram_idx of origin
 	assign sram_idx[2] = (origin_x > 2)? origin_x - 3 : origin_x + 1;
 	assign sram_idx[3] = (origin_x > 1)? origin_x - 2 : origin_x + 2;		// if origin_x = 6, then sram_idx[3] = 8
 	
+	// accessed address in SRAM
 	assign dis_ori_addr[1] = (origin_y << 1) + ((origin_x > 3)? 1 : 0);		// address of origin in SRAM
 	assign dis_ori_addr[0] = (sram_idx[1] == 4)? dis_ori_addr[1] - 1 : dis_ori_addr[1];
 	assign dis_ori_addr[2] = (sram_idx[1] == 3)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
+	assign dis_ori_addr[3] = (sram_idx[1] == 2)? dis_ori_addr[1] + 2 : dis_ori_addr[1];
+
+	genvar gi;  // Declare a genvar for generate block
+	generate
+		for (gi = 0; gi < 4; gi = gi + 1) begin : loop
+			assign SRAM_Q_real[sram_idx[gi]] = (sram_op_valid[gi])? SRAM_Q[sram_idx[gi]] : 0;  // Continuous assignment using the loop
+		end
+	endgenerate
+
 
 
 // ---------------------------------------------------------------------------
@@ -171,13 +188,22 @@ module core (                       //Don't modify interface
 					end
 				end
 			end
-			S_DIS_PREP: state_nxt = S_DISPLAY;
+			S_DIS_PREP: state_nxt = S_DISPLAY;	// wont enter this state
 			S_DISPLAY: begin
 				if(cnt >> 4 == channel_depth - 1) begin
 					state_nxt = S_DIS_GET_LAST;
 				end
 			end
-			S_DIS_GET_LAST: state_nxt = S_DIS_OUTPUT;
+			S_DIS_GET_LAST: state_nxt = S_OUTPUT;
+			S_CONV: begin
+				if(cnt >> 4 == channel_depth - 1) begin
+					state_nxt = S_CONV_OUTPUT;
+				end
+			end
+			S_CONV_OUTPUT: begin
+				if(cnt_display == 2)
+					state_nxt = S_OUTPUT;
+			end
 		endcase
 	end
 
@@ -201,7 +227,16 @@ module core (                       //Don't modify interface
 					cnt_display_nxt = 0;
 					cnt_nxt = cnt + 16;	// next channel
 				end else begin
-					cnt_display_nxt = cnt_display + 1;
+					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3
+					cnt_nxt = cnt;
+				end
+			end
+			S_CONV, S_CONV_OUTPUT: begin
+				if(cnt_display == 3) begin
+					cnt_display_nxt = 0;
+					cnt_nxt = cnt + 16;	// next channel (representing which channel is being processed)
+				end else begin
+					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3
 					cnt_nxt = cnt;
 				end
 			end
@@ -243,15 +278,20 @@ module core (                       //Don't modify interface
 		endcase
 	end
 
+
 	// other operations
 	always @(*) begin
 		out_data_nxt = 0;
 		out_valid_nxt = 0;
+		acc_ori_addr = 0;
+		conv_last_result_nxt = 0;
 		for(i=0; i<4; i=i+1) begin
 			SRAM_CEN[i] = 1;
 			SRAM_WEN[i] = 1;
 			SRAM_A[i] = 0;
 			SRAM_D[i] = 0;
+			sram_op_valid_nxt[i] = 0;
+			conv_result_nxt[i] = conv_result[i];
 		end
 		//! if state > S_OP_FETCH && state < S_OUTPUT && op_now != OP_LOAD
 		case(op_now)	// synopsys parallel_case
@@ -266,11 +306,11 @@ module core (                       //Don't modify interface
 					if(cnt_display[0] == 0) begin
 						//Todo: can be optimized by getting the index first
 						SRAM_CEN[sram_idx[1]] = (state == S_DIS_PREP || state == S_DISPLAY)? 0 : 1;
-						SRAM_A[sram_idx[1]] = dis_ori_addr[1] + {cnt_display[1], 1'b0};
+						SRAM_A[sram_idx[1]] = dis_ori_addr[1] + {cnt_display[1], 1'b0} + (cnt);
 						out_data_nxt = SRAM_Q[sram_idx[2]];	// output from the previous column
 					end else begin
 						SRAM_CEN[sram_idx[2]] = (state == S_DIS_PREP || state == S_DISPLAY)? 0 : 1;
-						SRAM_A[sram_idx[2]] = dis_ori_addr[2] + {cnt_display[1], 1'b0};
+						SRAM_A[sram_idx[2]] = dis_ori_addr[2] + {cnt_display[1], 1'b0} + (cnt);
 						out_data_nxt = SRAM_Q[sram_idx[1]];	// output from the previous column
 					end
 					if(cnt == 0 && cnt_display == 0)
@@ -279,6 +319,55 @@ module core (                       //Don't modify interface
 						out_valid_nxt = 1;
 				end else if (state == S_DIS_GET_LAST) begin
 					out_data_nxt = SRAM_Q[sram_idx[2]];	// output from the previous column(right column)
+					out_valid_nxt = 1;
+				end
+			end
+			OP_CONV: begin
+				if(state == S_CONV) begin
+					if(cnt == 0 && cnt_display != 3) begin
+						out_valid_nxt = 0;
+					end else begin
+						out_valid_nxt = 1;
+					end
+					acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1};
+					for(i=0; i<4; i=i+1) begin
+						if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16) begin
+							SRAM_CEN[sram_idx[i]] = 0;
+							SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+							sram_op_valid_nxt[i] = 1;
+						end
+					end
+					case(cnt_display)	// synopsys parallel_case full_case
+						0: begin
+							conv_result_nxt[0] = conv_result[0] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
+							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
+							//! need check rounding boundary for output
+							out_data_nxt = (conv_result[1] + 4'b1000) >> 4;
+						end
+						1: begin
+							conv_result_nxt[0] = conv_result[0] + SRAM_Q_real[sram_idx[0]] << 1 + SRAM_Q_real[sram_idx[1]] << 2 + SRAM_Q_real[sram_idx[2]] << 1;
+							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]] << 2 + SRAM_Q_real[sram_idx[3]] << 1;
+							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
+							conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
+							out_data_nxt = (conv_result[2] + 4'b1000) >> 4;
+							conv_last_result_nxt = conv_result[3];
+						end
+						2: begin
+							conv_result_nxt[0] = conv_result[0] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
+							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
+							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] << 1 + SRAM_Q_real[sram_idx[1]] << 2 + SRAM_Q_real[sram_idx[2]] << 1;
+							conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]] << 2 + SRAM_Q_real[sram_idx[3]] << 1;
+							out_data_nxt = (conv_last_result + 4'b1000) >> 4;
+						end
+						3: begin
+							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
+							conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
+							//! need rounding for output
+							out_data_nxt = (conv_result[0] + 4'b1000) >> 4;
+						end
+					endcase
+				end else if (state == S_CONV_OUTPUT) begin
+					out_data_nxt = (conv_result[cnt_display+1] + 4'b1000) >> 4;
 					out_valid_nxt = 1;
 				end
 			end
@@ -302,6 +391,11 @@ module core (                       //Don't modify interface
 			cnt_display <= 0;
 			operation <= OP_START;
 			out_data <= 0;
+			for(i=0; i<4; i=i+1) begin
+				sram_op_valid[i] <= 0;
+				conv_result[i] <= 0;
+			end
+			conv_last_result <= 0;
 		end else begin
 			state <= state_nxt;
 			channel_depth <= channel_depth_nxt;
@@ -311,6 +405,11 @@ module core (                       //Don't modify interface
 			cnt_display <= cnt_display_nxt;
 			operation <= operation_nxt;
 			out_data <= out_data_nxt;
+			for(i=0; i<4; i=i+1) begin
+				sram_op_valid[i] <= sram_op_valid_nxt[i];
+				conv_last_result_nxt[i] <= conv_result_nxt[i];
+			end
+			conv_last_result <= conv_last_result_nxt;
 		end
 	end
 
