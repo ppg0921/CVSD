@@ -27,6 +27,8 @@ module core (                       //Don't modify interface
 	localparam S_DIS_GET_LAST = 4'd10;
 	localparam S_OUTPUT = 4'd11;
 	localparam S_CONV_OUTPUT = 4'd12;
+	localparam S_MEDIAN = 4'd13;
+	localparam S_MEDIAN_OUTPUT = 4'd14;
 
 	localparam OP_LOAD = 4'd0;
 	localparam OP_RIGHT = 4'd1;
@@ -51,7 +53,7 @@ module core (                       //Don't modify interface
 	reg [2:0] origin_x, origin_x_nxt;
 	reg [2:0] origin_y, origin_y_nxt;
 	reg [10:0] cnt, cnt_nxt;
-	reg [2:0] cnt_display, cnt_display_nxt;
+	reg [4:0] cnt_display, cnt_display_nxt;
 	reg [3:0] operation_nxt, operation;
 	reg [13:0] out_data, out_data_nxt;
 	reg out_valid, out_valid_nxt;
@@ -59,6 +61,8 @@ module core (                       //Don't modify interface
 	reg sram_op_valid [0:3], sram_op_valid_nxt[0:3];
 	reg [11:0] conv_result[0:3], conv_result_nxt[0:3];
 	reg [7:0] conv_last_result, conv_last_result_nxt;
+	reg [7:0] median_map[0:7][0:2], median_map_nxt[0:7][0:2];
+	reg [7:0] median_final_map[0:2], median_final_map_nxt[0:2];	// final map for storing median numbers of 2
 
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
@@ -70,10 +74,14 @@ module core (                       //Don't modify interface
 	wire signed [2:0] sram_idx [0:3];
 	wire [3:0] dis_ori_addr [0:3];
 
+	// sort3
+	wire [7:0] out_sort0[0:2], out_sort1[0:2], out_sort2[0:2], out_sort3[0:2], out_sort4[0:2];
+	reg [23:0] in_sort0, in_sort1, in_sort2, in_sort3, in_sort4;
+
 	wire single_cycle_op;
 	wire [3:0] op_now;
 
-	integer i;
+	integer i, j;
 
 
 // ---------------------------------------------------------------------------
@@ -115,6 +123,56 @@ module core (                       //Don't modify interface
 		.D() 	// 8-bit data input
 	);
 
+	sort3 sort3_0(		// sort 3 data
+		.i_clk(i_clk),
+		.i_en(state == S_MEDIAN || state == S_MEDIAN_OUTPUT),
+		.i_rst_n(i_rst_n),
+		.i_data(),
+		.o_data0(),
+		.o_data1(),
+		.o_data2()
+	);
+
+	sort3 sort3_1(		// sort 3 data
+		.i_clk(i_clk),
+		.i_en(state == S_MEDIAN || state == S_MEDIAN_OUTPUT),
+		.i_rst_n(i_rst_n),
+		.i_data(),
+		.o_data0(),
+		.o_data1(),
+		.o_data2()
+	);
+
+	sort3 sort3_2(		// sort 3 data
+		.i_clk(i_clk),
+		.i_en(state == S_MEDIAN || state == S_MEDIAN_OUTPUT),
+		.i_rst_n(i_rst_n),
+		.i_data(),
+		.o_data0(),
+		.o_data1(),
+		.o_data2()
+	);
+
+	sort3 sort3_3(		// sort 3 data
+		.i_clk(i_clk),
+		.i_en(state == S_MEDIAN || state == S_MEDIAN_OUTPUT),
+		.i_rst_n(i_rst_n),
+		.i_data(),
+		.o_data0(),
+		.o_data1(),
+		.o_data2()
+	);
+
+	sort3 sort3_4(		// sort 3 data
+		.i_clk(i_clk),
+		.i_en(state == S_MEDIAN || state == S_MEDIAN_OUTPUT),
+		.i_rst_n(i_rst_n),
+		.i_data(),
+		.o_data0(),
+		.o_data1(),
+		.o_data2()
+	);
+
 
 // ---------------------------------------------------------------------------
 // Continuous Assignment
@@ -134,9 +192,9 @@ module core (                       //Don't modify interface
 	
 	// accessed address in SRAM
 	assign dis_ori_addr[1] = (origin_y << 1) + ((origin_x > 3)? 1 : 0);		// address of origin in SRAM
-	assign dis_ori_addr[0] = (sram_idx[1] == 4)? dis_ori_addr[1] - 1 : dis_ori_addr[1];
+	assign dis_ori_addr[0] = (sram_idx[1] == 4)? dis_ori_addr[1] - 1 : dis_ori_addr[1];	// if origin_y = 0
 	assign dis_ori_addr[2] = (sram_idx[1] == 3)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
-	assign dis_ori_addr[3] = (sram_idx[1] == 2)? dis_ori_addr[1] + 2 : dis_ori_addr[1];
+	assign dis_ori_addr[3] = (sram_idx[1] == 2)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
 
 	genvar gi;  // Declare a genvar for generate block
 	generate
@@ -182,7 +240,7 @@ module core (                       //Don't modify interface
 							OP_DISPLAY: state_nxt = S_DISPLAY;
 							OP_CONV: state_nxt = S_CONV;
 							//! need modification
-							OP_MEDIAN: state_nxt = S_CONV;
+							OP_MEDIAN: state_nxt = S_MEDIAN;
 							OP_SOBEL_NMS: state_nxt = S_CONV;
 						endcase
 					end
@@ -203,6 +261,14 @@ module core (                       //Don't modify interface
 			S_CONV_OUTPUT: begin
 				if(cnt_display == 2)
 					state_nxt = S_OUTPUT;
+			end
+			S_MEDIAN: begin
+				if(cnt >> 4 == 4) begin	// including one whole process after the 4th channel
+					state_nxt = S_MEDIAN_OUTPUT;
+				end
+			end
+			S_MEDIAN_OUTPUT: begin	// for setting output of median3 of channel 4
+				state_nxt = S_OUTPUT;
 			end
 		endcase
 	end
@@ -237,6 +303,15 @@ module core (                       //Don't modify interface
 					cnt_nxt = cnt + 16;	// next channel (representing which channel is being processed)
 				end else begin
 					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3
+					cnt_nxt = cnt;
+				end
+			end
+			S_MEDIAN: begin
+				if(cnt_display == 4) begin
+					cnt_display_nxt = 0;
+					cnt_nxt = cnt + 16;	// next channel
+				end else begin
+					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3, 4
 					cnt_nxt = cnt;
 				end
 			end
@@ -293,6 +368,14 @@ module core (                       //Don't modify interface
 			sram_op_valid_nxt[i] = 0;
 			conv_result_nxt[i] = conv_result[i];
 		end
+		for(i=0; i<3; i=i+1) begin
+			median_final_map_nxt[i] = median_final_map[i];
+		end
+		for(i=0; i<8; i=i+1) begin
+			for(j=0; j<3; j=j+1) begin
+				median_map_nxt[i][j] = median_map[i][j];
+			end
+		end
 		//! if state > S_OP_FETCH && state < S_OUTPUT && op_now != OP_LOAD
 		case(op_now)	// synopsys parallel_case
 			OP_LOAD: begin	// only need to set data, then SRAM will write data in the next cycle
@@ -329,9 +412,9 @@ module core (                       //Don't modify interface
 					end else begin
 						out_valid_nxt = 1;
 					end
-					acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1};
+					acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
 					for(i=0; i<4; i=i+1) begin
-						if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16) begin
+						if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
 							SRAM_CEN[sram_idx[i]] = 0;
 							SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
 							sram_op_valid_nxt[i] = 1;
@@ -350,14 +433,14 @@ module core (                       //Don't modify interface
 							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
 							conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
 							out_data_nxt = (conv_result[2] + 4'b1000) >> 4;
-							conv_last_result_nxt = conv_result[3];
+							conv_last_result_nxt = (conv_result[3] + 4'b1000) >> 4;
 						end
 						2: begin
 							conv_result_nxt[0] = conv_result[0] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
 							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx[1]] + SRAM_Q_real[sram_idx[2]] << 1 + SRAM_Q_real[sram_idx[3]];
 							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] << 1 + SRAM_Q_real[sram_idx[1]] << 2 + SRAM_Q_real[sram_idx[2]] << 1;
 							conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]] << 2 + SRAM_Q_real[sram_idx[3]] << 1;
-							out_data_nxt = (conv_last_result + 4'b1000) >> 4;
+							out_data_nxt = conv_last_result;	// already rounded in the previous cycle
 						end
 						3: begin
 							conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx[0]] + SRAM_Q_real[sram_idx[1]] << 1 + SRAM_Q_real[sram_idx[2]];
@@ -371,6 +454,88 @@ module core (                       //Don't modify interface
 					out_valid_nxt = 1;
 				end
 			end
+			OP_MEDIAN: begin
+				//! remember to set out_valid
+				if(state == S_MEDIAN) begin
+					// request from sram
+					
+					if(cnt_display != 4 && cnt != 64) begin
+						for(i=0; i<4; i=i+1) begin
+							acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
+							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
+								SRAM_CEN[sram_idx[i]] = 0;
+								SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+								sram_op_valid_nxt[i] = 1;
+							end
+						end
+					end
+					// set median map
+					if(cnt_display != 1 && cnt != 64) begin
+						if(cnt_display == 0) begin
+							for(i=0; i<3; i++) begin
+								median_map_nxt[6][i] = in_sort0[i];
+								median_map_nxt[7][i] = in_sort1[i];
+							end
+						end else begin
+							for(i=0; i<3; i++) begin
+								median_map_nxt[(cnt_display-2) << 1][i] = in_sort0[i];
+								median_map_nxt[(cnt_display-2) << 1 + 1][i] = in_sort1[i];
+							end
+						end
+					end
+					if(cnt != 0 && cnt_display != 3 && !(cnt == 16 && cnt_display == 0)) begin
+						out_valid_nxt = 1;
+					end
+					case(cnt_display)
+						0: begin
+							in_sort0 = {median_map[1][0], median_map[3][0], median_map[5][0]};
+							in_sort1 = {median_map[1][1], median_map[3][1], median_map[5][1]};
+							in_sort2 = {median_map[1][2], median_map[3][2], median_map[5][2]};
+							in_sort3 = {out_sort4[0], out_sort3[1], out_sort2[2]};
+							in_sort4 = {median_map[2][0], median_map[4][0], median_map[6][0]};
+							out_data_nxt = conv_last_result;		// median of 3
+						end
+						1: begin
+							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort2 = {out_sort2[0], out_sort1[1], out_sort0[2]};
+							in_sort3 = {median_map[2][1], median_map[4][1], median_map[6][1]};
+							in_sort4 = {median_map[2][2], median_map[4][2], median_map[6][2]};
+							median_final_map_nxt[2] = out_sort4[2];
+							out_data_nxt = out_sort3[1];		// median of 0
+						end
+						2: begin
+							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort2 = {median_map[6][0], median_map[6][1], median_map[6][2]};
+							in_sort3 = {median_map[7][0], median_map[7][1], median_map[7][2]};
+							median_final_map_nxt[1] = out_sort3[1];
+							median_final_map_nxt[0] = out_sort4[0];
+							out_data_nxt = out_sort2[1];		// median of 1
+						end
+						3: begin
+							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort2 = {median_final_map[0], median_final_map[1], median_final_map[2]};
+							in_sort3 = {out_sort4[0], out_sort3[1], out_sort2[2]};
+							// no output
+						end
+						4: begin
+							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort2 = {median_map[0][0], median_map[2][0], median_map[4][0]};
+							in_sort3 = {median_map[0][1], median_map[2][1], median_map[4][1]};
+							in_sort4 = {median_map[0][2], median_map[2][2], median_map[4][2]};
+							out_data_nxt = out_sort2[1];		// median of 2
+							conv_last_result_nxt = out_sort3[1];
+						end
+					endcase
+				end
+			end else if (state == S_MEDIAN_OUTPUT) begin
+				out_data_nxt = conv_last_result;
+				out_valid_nxt = 1;
+			end
+
 		endcase
 	end
 		
@@ -415,4 +580,74 @@ module core (                       //Don't modify interface
 
 
 
+endmodule
+
+module sort3 (
+	input i_clk,
+	input i_en,
+	input i_rst_n,
+	input [23:0] i_data,
+	output [7:0] o_data0,
+	output [7:0] o_data1,
+	output [7:0] o_data2
+);
+
+	reg [7:0] o_data0_nxt, o_data1_nxt, o_data2_nxt, o_data0_reg, o_data1_reg, o_data2_reg;
+	wire [7:0] i_data0, i_data1, i_data2;
+
+	assign o_data0 = o_data0_reg;
+	assign o_data1 = o_data1_reg;
+	assign o_data2 = o_data2_reg;
+	assign i_data0 = i_data[23:16];
+	assign i_data1 = i_data[15:8];
+	assign i_data2 = i_data[7:0];
+
+	always @(*) begin
+		if(!i_en) begin
+			o_data0_nxt = 0;
+			o_data1_nxt = 0;
+			o_data2_nxt = 0;
+		end 
+		else if(i_data0<=i_data1) begin
+			if(i_data1<=i_data2) begin
+				o_data0_nxt = i_data0;
+				o_data1_nxt = i_data1;
+				o_data2_nxt = i_data2;
+			end else if(i_data0<=i_data2) begin
+				o_data0_nxt = i_data0;
+				o_data1_nxt = i_data2;
+				o_data2_nxt = i_data1;
+			end else begin
+				o_data0_nxt = i_data2;
+				o_data1_nxt = i_data0;
+				o_data2_nxt = i_data1;
+			end
+		end else begin // i_data0 > i_data1
+			if(i_data1 > i_data2) begin
+				o_data0_nxt = i_data2;
+				o_data1_nxt = i_data1;
+				o_data2_nxt = i_data0;
+			end else if(i_data0 > i_data2) begin
+				o_data0_nxt = i_data1;
+				o_data1_nxt = i_data2;
+				o_data2_nxt = i_data0;
+			end else begin
+				o_data0_nxt = i_data1;
+				o_data1_nxt = i_data0;
+				o_data2_nxt = i_data2;
+			end
+		end
+	end
+
+	always @(posedge i_clk or negedge i_rst_n) begin
+		if(!i_rst_n) begin
+			o_data0_reg <= 0;
+			o_data1_reg <= 0;
+			o_data2_reg <= 0;
+		end else begin
+			o_data0_reg <= o_data0_nxt;
+			o_data1_reg <= o_data1_nxt;
+			o_data2_reg <= o_data2_nxt;
+		end
+	end
 endmodule
