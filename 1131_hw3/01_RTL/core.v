@@ -30,6 +30,8 @@ module core (                       //Don't modify interface
 	localparam S_MEDIAN = 5'd13;
 	localparam S_MEDIAN_OUTPUT = 5'd14;
 	localparam S_SINGLE_CYCLE = 5'd15;
+	localparam S_SOBEL_NMS = 5'd16;
+	localparam S_SOBEL_NMS_OUTPUT = 5'd17;
 
 	localparam OP_LOAD = 4'd0;
 	localparam OP_RIGHT = 4'd1;
@@ -42,6 +44,11 @@ module core (                       //Don't modify interface
 	localparam OP_CONV = 4'd8;
 	localparam OP_MEDIAN = 4'd9;
 	localparam OP_SOBEL_NMS = 4'd10;
+
+	localparam DIR0 = 2'd0;
+	localparam DIR45 = 2'd1;
+	localparam DIR90 = 2'd2;
+	localparam DIR135 = 2'd3;
 
 
 
@@ -61,9 +68,11 @@ module core (                       //Don't modify interface
 	reg [4:0] acc_ori_addr;
 	reg sram_op_valid [0:3], sram_op_valid_nxt[0:3];
 	reg [16:0] conv_result[0:3], conv_result_nxt[0:3];
-	reg [7:0] conv_last_result, conv_last_result_nxt;
+	reg [10:0] conv_last_result, conv_last_result_nxt;
 	reg [7:0] median_map[0:7][0:2], median_map_nxt[0:7][0:2];
 	reg [7:0] median_final_map[0:2], median_final_map_nxt[0:2];	// final map for storing median numbers of 2
+	reg signed [10:0] sg_y_result[0:3], sg_y_result_nxt[0:3];
+	reg sobel_last_result, sobel_last_result_nxt;
 
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
@@ -83,6 +92,12 @@ module core (                       //Don't modify interface
 	wire single_cycle_op;
 	wire [3:0] op_now;
 
+	// sobel direction
+	wire [1:0] sobel_direction[0:1];
+	wire [10:0] out_G[0:1];
+	reg [10:0] Gx[0:1], Gy[0:1];
+	reg [10:0] G_result[0:1], G_result_nxt[0:1];
+	reg [10:0] G_23_result[0:1];
 	integer i, j;
 
 
@@ -175,6 +190,24 @@ module core (                       //Don't modify interface
 		.o_data2(out_sort4[2])
 	);
 
+	SobelDirection SG_0(		// Sobel gradient for y direction
+		.i_clk(i_clk),
+		.i_rst_n(i_rst_n),
+		.Gx(Gx[0]),
+		.Gy(Gy[0]),
+		.o_dir(sobel_direction[0]),
+		.o_G(out_G[0])
+	);
+
+	SobelDirection SG_1(		// Sobel gradient for y direction
+		.i_clk(i_clk),
+		.i_rst_n(i_rst_n),
+		.Gx(Gx[1]),
+		.Gy(Gy[1]),
+		.o_dir(sobel_direction[1]),
+		.o_G(out_G[1])
+	);
+
 
 // ---------------------------------------------------------------------------
 // Continuous Assignment
@@ -250,7 +283,7 @@ module core (                       //Don't modify interface
 							OP_CONV: state_nxt = S_CONV;
 							//! need modification
 							OP_MEDIAN: state_nxt = S_MEDIAN;
-							OP_SOBEL_NMS: state_nxt = S_CONV;
+							OP_SOBEL_NMS: state_nxt = S_SOBEL_NMS;
 						endcase
 					end
 				end
@@ -278,6 +311,14 @@ module core (                       //Don't modify interface
 				end
 			end
 			S_MEDIAN_OUTPUT: begin	// for setting output of median3 of channel 4
+				state_nxt = S_OUTPUT;
+			end
+			S_SOBEL_NMS: begin
+				if(cnt >> 4 == 4 && cnt_display == 3) begin
+					state_nxt = S_SOBEL_NMS_OUTPUT;
+				end
+			end
+			S_SOBEL_NMS_OUTPUT: begin
 				state_nxt = S_OUTPUT;
 			end
 			S_OUTPUT: begin
@@ -330,6 +371,15 @@ module core (                       //Don't modify interface
 					cnt_nxt = cnt + 16;	// next channel
 				end else begin
 					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3, 4
+					cnt_nxt = cnt;
+				end
+			end
+			S_SOBEL_NMS: begin
+				if(cnt_display == 3) begin
+					cnt_display_nxt = 0;
+					cnt_nxt = cnt + 16;	// next channel
+				end else begin
+					cnt_display_nxt = cnt_display + 1;	// 0, 1, 2, 3
 					cnt_nxt = cnt;
 				end
 			end
@@ -413,11 +463,20 @@ module core (                       //Don't modify interface
 				median_map_nxt[i][j] = median_map[i][j];
 			end
 		end
+		for(i=0; i<2; i=i+1) begin
+			G_result_nxt[i] = G_result[i];
+			G_23_result[i] = 0;
+		end
 		in_sort0 = 0;
 		in_sort1 = 0;
 		in_sort2 = 0;
 		in_sort3 = 0;
 		in_sort4 = 0;
+		for(i=0; i<2; i=i+1) begin
+			Gx[i] = 0;
+			Gy[i] = 0;
+		end
+		sobel_last_result_nxt = sobel_last_result;
 		//! if state > S_OP_FETCH && state < S_OUTPUT && op_now != OP_LOAD
 		case(op_now)	// synopsys parallel_case
 			OP_LOAD: begin	// only need to set data, then SRAM will write data in the next cycle
@@ -584,7 +643,89 @@ module core (                       //Don't modify interface
 				end
 			end 
 			OP_SOBEL_NMS: begin
+				if(state == S_SOBEL_NMS) begin
+					if(cnt != 64) begin
+						for(i=0; i<4; i=i+1) begin
+							acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
+							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
+								SRAM_CEN[sram_idx[i]] = 0;
+								SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+								sram_op_valid_nxt[i] = 1;
+							end
+						end
+					end
+					if(cnt!=0)
+						out_valid_nxt = 1;
+					case(cnt_display)
+						0: begin
+							conv_result_nxt[2] = $signed(conv_result[2]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[3] = $signed(conv_result[3]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[2] = $signed(sg_y_result[2]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[3] = $signed(sg_y_result[3]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
+							G_result_nxt[0] = out_G[0];
+							G_result_nxt[1] = out_G[1];
+							G_23_result[0] = (conv_result[2][16]? (~conv_result[2] + 1): conv_result[2]) + (sg_y_result[2][10]? (~sg_y_result[2] + 1): conv_result[2]);
+							G_23_result[1] = (conv_result[3][16]? (~conv_result[3] + 1): conv_result[3]) + (sg_y_result[3][10]? (~sg_y_result[3] + 1): conv_result[3]);
 
+							case(sobel_direction[0])
+								DIR0: out_data_nxt = (out_G[0] >= out_G[1])? out_G[0] : 0;
+								DIR45: out_data_nxt = (out_G[0] >= (G_23_result[1]))? out_G[0] : 0;
+								DIR90: out_data_nxt = (out_G[0] >= G_23_result[0])? out_G[0] : 0;
+								DIR135: out_data_nxt = out_G[0];
+							endcase
+							case(sobel_direction[1])
+								DIR0: conv_last_result_nxt = (out_G[1] >= out_G[0])? out_G[1] : 0;
+								DIR45: conv_last_result_nxt = out_G[1];
+								DIR90: conv_last_result_nxt = (out_G[1] >= G_23_result[1])? out_G[1] : 0;
+								DIR135: conv_last_result_nxt = (out_G[1] >= G_23_result[0])? out_G[1] : 0;
+							endcase
+						end
+						1: begin
+							conv_result_nxt[0] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[1] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[0] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) - 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) - $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[1] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) - 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) - $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							out_data_nxt = conv_last_result;
+							// out_data_nxt = (conv_result[1] + 4'b1000) >> 4;	// already rounded in the previous cycle
+							case(sobel_direction[0])
+								DIR0: conv_last_result_nxt = (out_G[0] >= out_G[1])? out_G[0] : 0;
+								DIR45: conv_last_result_nxt = out_G[0];
+								DIR90: conv_last_result_nxt = (out_G[0] >= G_result[0])? out_G[0] : 0;
+								DIR135: conv_last_result_nxt = (out_G[0] >= G_result[1])? out_G[0] : 0;
+							endcase
+							case(sobel_direction[1])
+								DIR0: sobel_last_result_nxt = (out_G[1] >= out_G[0])? out_G[1] : 0;
+								DIR45: sobel_last_result_nxt = (out_G[1] >= G_result[0])? out_G[1] : 0;
+								DIR90: sobel_last_result_nxt = (out_G[1] >= G_result[1])? out_G[1] : 0;
+								DIR135: sobel_last_result_nxt = out_G[1];
+							endcase	
+						end
+						2: begin
+							conv_result_nxt[0] = $signed(conv_result[0]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[0]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[1] = $signed(conv_result[1]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[1]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							conv_result_nxt[2] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[3] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[2] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) - 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) - $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[3] = -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) - 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) - $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							out_data_nxt = conv_last_result;
+						end
+						3: begin
+							conv_result_nxt[0] = $signed(conv_result[0]) -($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[1] = $signed(conv_result[1]) -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							conv_result_nxt[2] = $signed(conv_result[2]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[0]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[3] = $signed(conv_result[3]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[1]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[0] = $signed(sg_y_result[0]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[1] = $signed(sg_y_result[1]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							Gx[0] = conv_result_nxt[0];
+							Gx[1] = conv_result_nxt[1];
+							Gy[0] = sg_y_result_nxt[0];
+							Gy[1] = sg_y_result_nxt[1];
+							out_data_nxt = sobel_last_result;
+							// out_data_nxt = conv_last_result;	// already rounded in the previous cycle
+						end
+					endcase
+					
+				end
 			end
 		endcase
 	end
@@ -621,6 +762,10 @@ module core (                       //Don't modify interface
 					median_map[i][j] <= 0;
 				end
 			end
+			for(i=0; i<2; i=i+1) begin
+				G_result[i] <= 0;
+			end
+			sobel_last_result <= 0;
 		end else begin
 			state <= state_nxt;
 			channel_depth <= channel_depth_nxt;
@@ -645,6 +790,10 @@ module core (                       //Don't modify interface
 					median_map[i][j] <= median_map_nxt[i][j];
 				end
 			end
+			for(i=0; i<2; i=i+1) begin
+				G_result[i] <= G_result_nxt[i];
+			end
+			sobel_last_result <= sobel_last_result_nxt;
 		end
 	end
 
@@ -657,7 +806,8 @@ module SobelDirection (
 	input i_rst_n,
 	input signed [10:0] Gx,
 	input signed [10:0] Gy,
-	output [1:0] o_dir
+	output [1:0] o_dir,
+	output [10:0] o_G
 );
 
 	localparam DIR0 = 2'd0;
@@ -668,15 +818,24 @@ module SobelDirection (
 	wire [9:0] abs_Gx, abs_Gy;
 	wire signed [16:0] tan225, tan675;
 	reg [1:0] o_dir_reg, o_dir_nxt;
+	reg [10:0] o_G_reg, o_G_nxt;
 
 	assign abs_Gx = (Gx[10])? ~Gx + 1 : Gx;
 	assign abs_Gy = (Gy[10])? ~Gy + 1 : Gy;
 
 	assign tan225 = abs_Gx + abs_Gx << 2 + abs_Gx << 4 + abs_Gx << 5;
 	assign tan675 = abs_Gx + abs_Gx << 2 + abs_Gx << 4 + abs_Gx << 5 + abs_Gx << 8;
+
+	assign o_dir = o_dir_reg;
+	assign o_G = o_G_reg;
 	
 	always @(*) begin
-		if(Gx[10] == Gy[10]) begin
+		o_G_nxt = abs_Gx + abs_Gy;
+		if(abs_Gy == 0) begin
+			o_dir_nxt = DIR0;
+		end else if(abs_Gx == 0) begin
+			o_dir_nxt = DIR90;
+		end else if(Gx[10] == Gy[10]) begin
 			if(abs_Gy < tan225) begin
 				o_dir_nxt = DIR0;
 			end else if(abs_Gy <= tan675) begin
@@ -697,8 +856,10 @@ module SobelDirection (
 	always @(posedge i_clk or negedge i_rst_n) begin
 		if(!i_rst_n) begin
 			o_dir_reg <= 0;
+			o_G_reg <= 0;
 		end else begin
 			o_dir_reg <= o_dir_nxt;
+			o_G_reg <= o_G_nxt;
 		end
 	end
 
