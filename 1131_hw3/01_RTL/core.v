@@ -65,7 +65,7 @@ module core (                       //Don't modify interface
 	reg [3:0] operation_nxt, operation;
 	reg [13:0] out_data, out_data_nxt;
 	reg out_valid, out_valid_nxt;
-	reg [4:0] acc_ori_addr;
+	reg [4:0] acc_ori_addr[0:3];
 	reg sram_op_valid [0:3], sram_op_valid_nxt[0:3];
 	reg [16:0] conv_result[0:3], conv_result_nxt[0:3];
 	reg [10:0] conv_last_result, conv_last_result_nxt;
@@ -73,13 +73,14 @@ module core (                       //Don't modify interface
 	reg [7:0] median_final_map[0:2], median_final_map_nxt[0:2];	// final map for storing median numbers of 2
 	reg signed [10:0] sg_y_result[0:3], sg_y_result_nxt[0:3];
 	reg [10:0] sobel_last_result, sobel_last_result_nxt;
+	reg [2:0] median_map_idx;
 
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
 	wire [7:0] SRAM_Q [0:3];		// output data
 	reg [7:0] SRAM_Q_real [0:3];	// output data condisering valid
 	reg [7:0] SRAM_D [0:3];		// input data
-	reg [11:0] SRAM_A [0:3];
+	reg [8:0] SRAM_A [0:3];
 	reg [8:0] load_add_offset, load_add_offset_nxt;	// for load operation and also for display channel offset
 	wire signed [3:0] sram_idx [0:3];
 	reg [1:0] sram_idx_good [0:3];
@@ -253,7 +254,7 @@ module core (                       //Don't modify interface
 	always @(*) begin
 		state_nxt = state;
 		operation_nxt = operation;
-		case(state)	// synopsys parallel_case
+		case(state)	
 			S_START: begin
 				if(cnt == 3)
 					state_nxt = S_LOAD_READY;
@@ -392,7 +393,7 @@ module core (                       //Don't modify interface
 		origin_x_nxt = origin_x;
 		origin_y_nxt = origin_y;
 		if(state == S_SINGLE_CYCLE) begin
-			case(op_now)	// synopsys parallel_case
+			case(op_now)	
 				OP_LOAD: begin
 				end
 				OP_RIGHT: begin
@@ -425,12 +426,6 @@ module core (                       //Don't modify interface
 
 	always @(*) begin
 		for(i=0; i<4; i++) begin
-			// if(sram_idx[i] <= 0)
-			// 	sram_idx_good[i] = sram_idx[i] + 4;
-			// else if(sram_idx[i] >= 4)
-			// 	sram_idx_good[i] = sram_idx[i] - 4;
-			// else
-			// 	sram_idx_good[i] = sram_idx[i];
 			sram_idx_good[i] = sram_idx[i][1:0];
 		end
 		for (i = 0; i < 4; i = i + 1) begin
@@ -445,7 +440,7 @@ module core (                       //Don't modify interface
 	always @(*) begin
 		out_data_nxt = 0;
 		out_valid_nxt = 0;
-		acc_ori_addr = 0;
+		
 		conv_last_result_nxt = 0;
 		for(i=0; i<4; i=i+1) begin
 			SRAM_CEN[i] = 1;
@@ -455,6 +450,7 @@ module core (                       //Don't modify interface
 			sram_op_valid_nxt[i] = 0;
 			conv_result_nxt[i] = conv_result[i];
 			sg_y_result_nxt[i] = sg_y_result[i];
+			acc_ori_addr[i] = 0;
 		end
 		for(i=0; i<3; i=i+1) begin
 			median_final_map_nxt[i] = median_final_map[i];
@@ -478,18 +474,19 @@ module core (                       //Don't modify interface
 			Gy[i] = 0;
 		end
 		sobel_last_result_nxt = sobel_last_result;
+		median_map_idx = 0;
 		//! if state > S_OP_FETCH && state < S_OUTPUT && op_now != OP_LOAD
-		case(op_now)	// synopsys parallel_case
-			OP_LOAD: begin	// only need to set data, then SRAM will write data in the next cycle
-				if(state == S_LOAD) begin
-					SRAM_CEN[cnt_display] = 0;		// active low
-					SRAM_WEN[cnt_display] = 0;
-					SRAM_A[cnt_display] = load_add_offset;
-					SRAM_D[cnt_display] = i_in_data;
-				end
+		case(state)	
+			S_LOAD: begin	// only need to set data, then SRAM will write data in the next cycle
+				// if(state == S_LOAD) begin
+					SRAM_CEN[cnt_display[1:0]] = 0;		// active low
+					SRAM_WEN[cnt_display[1:0]] = 0;
+					SRAM_A[cnt_display[1:0]] = load_add_offset;
+					SRAM_D[cnt_display[1:0]] = i_in_data;
+				// end
 			end
-			OP_DISPLAY: begin
-				if(state == S_DISPLAY) begin
+			S_DISPLAY: begin
+				// if(state == S_DISPLAY) begin
 					if(cnt_display[0] == 0) begin
 						//Todo: can be optimized by getting the index first
 						SRAM_CEN[sram_idx_good[1]] = (state == S_DIS_PREP || state == S_DISPLAY)? 0 : 1;
@@ -504,19 +501,22 @@ module core (                       //Don't modify interface
 						out_valid_nxt = 0;
 					else
 						out_valid_nxt = 1;
-				end else if (state == S_DIS_GET_LAST) begin
-					out_data_nxt = SRAM_Q[sram_idx_good[2]];	// output from the previous column(right column)
-					out_valid_nxt = 1;
-				end
+				// end else if (state == S_DIS_GET_LAST) begin
+					
+				// end
 			end
-			OP_CONV: begin
-				if(state == S_CONV) begin
+			S_DIS_GET_LAST: begin
+				out_data_nxt = SRAM_Q[sram_idx_good[2]];	// output from the previous column(right column)
+				out_valid_nxt = 1;
+			end
+			S_CONV: begin
+				// if(state == S_CONV) begin
 
 					for(i=0; i<4; i=i+1) begin
-						acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
-						if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
-							SRAM_CEN[sram_idx[i]] = 0;
-							SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+						acc_ori_addr[i] = dis_ori_addr[i] + {cnt_display << 1} - 2;
+						if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr[i] < 16 && acc_ori_addr[i] >= 0) begin
+							SRAM_CEN[sram_idx[i][1:0]] = 0;
+							SRAM_A[sram_idx[i][1:0]] = acc_ori_addr[i] + (cnt);
 							sram_op_valid_nxt[i] = 1;
 						end
 					end
@@ -553,25 +553,28 @@ module core (                       //Don't modify interface
 							// out_data_nxt = conv_last_result;	// already rounded in the previous cycle
 						end
 					endcase
-				end else if (state == S_CONV_OUTPUT) begin
-					if(cnt_display == 0) begin
+				// end else if (state == S_CONV_OUTPUT) begin
+					
+				// end
+			end
+			S_CONV_OUTPUT: begin
+				if(cnt_display == 0) begin
 						conv_result_nxt[2] = conv_result[2] + SRAM_Q_real[sram_idx_good[0]] + (SRAM_Q_real[sram_idx_good[1]] << 1) + SRAM_Q_real[sram_idx_good[2]];
 						conv_result_nxt[3] = conv_result[3] + SRAM_Q_real[sram_idx_good[1]] + (SRAM_Q_real[sram_idx_good[2]] << 1) + SRAM_Q_real[sram_idx_good[3]];
 					end
-					out_data_nxt = (conv_result[cnt_display] + 4'b1000) >> 4;
+					out_data_nxt = (conv_result[cnt_display[1:0]] + 4'b1000) >> 4;
 					out_valid_nxt = 1;
-				end
 			end
-			OP_MEDIAN: begin
+			S_MEDIAN: begin
 				//! remember to set out_valid
-				if(state == S_MEDIAN) begin
+				// if(state == S_MEDIAN) begin
 					// request from sram
 					if(cnt_display != 4 && cnt != 64) begin
 						for(i=0; i<4; i=i+1) begin
-							acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
-							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
+							acc_ori_addr[i] = dis_ori_addr[i] + {cnt_display << 1} - 2;
+							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr[i] < 16 && acc_ori_addr[i] >= 0) begin
 								SRAM_CEN[sram_idx_good[i]] = 0;
-								SRAM_A[sram_idx_good[i]] = acc_ori_addr + (cnt);
+								SRAM_A[sram_idx_good[i]] = acc_ori_addr[i] + (cnt);
 								sram_op_valid_nxt[i] = 1;
 							end
 						end
@@ -585,8 +588,9 @@ module core (                       //Don't modify interface
 							end
 						end else begin
 							for(i=0; i<3; i++) begin
-								median_map_nxt[(cnt_display-2) << 1][i] = out_sort0[i];
-								median_map_nxt[((cnt_display-2) << 1) + 1][i] = out_sort1[i];
+								median_map_idx = (cnt_display-2) << 1;
+								median_map_nxt[median_map_idx][i] = out_sort0[i];
+								median_map_nxt[median_map_idx | 3'b001][i] = out_sort1[i];
 							end
 						end
 					end
@@ -638,19 +642,22 @@ module core (                       //Don't modify interface
 							conv_last_result_nxt = out_sort3[1];
 						end
 					endcase
-				end else if (state == S_MEDIAN_OUTPUT) begin
-					out_data_nxt = conv_last_result;
-					out_valid_nxt = 1;
-				end
+				// end else if (state == S_MEDIAN_OUTPUT) begin
+					
+				// end
 			end 
-			OP_SOBEL_NMS: begin
-				if(state == S_SOBEL_NMS) begin
+			S_MEDIAN_OUTPUT: begin
+				out_data_nxt = conv_last_result;
+				out_valid_nxt = 1;
+			end
+			S_SOBEL_NMS: begin
+				// if(state == S_SOBEL_NMS) begin
 					if(cnt != 64) begin
 						for(i=0; i<4; i=i+1) begin
-							acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
-							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
-								SRAM_CEN[sram_idx[i]] = 0;
-								SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+							acc_ori_addr[i] = dis_ori_addr[i] + {cnt_display << 1} - 2;
+							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr[i] < 16 && acc_ori_addr[i] >= 0) begin
+								SRAM_CEN[sram_idx_good[i]] = 0;
+								SRAM_A[sram_idx_good[i]] = acc_ori_addr[i] + (cnt);
 								sram_op_valid_nxt[i] = 1;
 							end
 						end
@@ -661,8 +668,8 @@ module core (                       //Don't modify interface
 						0: begin
 							conv_result_nxt[2] = $signed(conv_result[2]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
 							conv_result_nxt[3] = $signed(conv_result[3]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
-							sg_y_result_nxt[2] = $signed(sg_y_result[2]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
-							sg_y_result_nxt[3] = $signed(sg_y_result[3]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
+							sg_y_result_nxt[2] = sg_y_result[2] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[3] = sg_y_result[3] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
 							G_result_nxt[0] = out_G[0];
 							G_result_nxt[1] = out_G[1];
 							G_23_result[0] = (conv_result_nxt[2][16]? (~conv_result_nxt[2] + 1): conv_result_nxt[2]) + (sg_y_result_nxt[2][10]? (~sg_y_result_nxt[2] + 1): sg_y_result_nxt[2]);
@@ -718,8 +725,8 @@ module core (                       //Don't modify interface
 							conv_result_nxt[1] = $signed(conv_result[1]) -($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
 							conv_result_nxt[2] = $signed(conv_result[2]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[0]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
 							conv_result_nxt[3] = $signed(conv_result[3]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[1]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
-							sg_y_result_nxt[0] = $signed(sg_y_result[0]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
-							sg_y_result_nxt[1] = $signed(sg_y_result[1]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[0] = sg_y_result[0] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[1] = sg_y_result[1] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
 							Gx[0] = conv_result_nxt[0];
 							Gx[1] = conv_result_nxt[1];
 							Gy[0] = sg_y_result_nxt[0];
@@ -729,7 +736,7 @@ module core (                       //Don't modify interface
 						end
 					endcase
 					
-				end
+				// end
 			end
 		endcase
 	end
@@ -822,7 +829,7 @@ module SobelDirection (
 	localparam DIR135 = 2'd3;
 
 	wire [9:0] abs_Gx, abs_Gy;
-	wire [16:0] shifted_Gy;
+	wire [18:0] shifted_Gy;
 	wire [18:0] tan225, tan675;
 	reg [1:0] o_dir_reg, o_dir_nxt;
 	reg [10:0] o_G_reg, o_G_nxt;
