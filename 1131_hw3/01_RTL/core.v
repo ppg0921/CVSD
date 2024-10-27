@@ -72,7 +72,7 @@ module core (                       //Don't modify interface
 	reg [7:0] median_map[0:7][0:2], median_map_nxt[0:7][0:2];
 	reg [7:0] median_final_map[0:2], median_final_map_nxt[0:2];	// final map for storing median numbers of 2
 	reg signed [10:0] sg_y_result[0:3], sg_y_result_nxt[0:3];
-	reg sobel_last_result, sobel_last_result_nxt;
+	reg [10:0] sobel_last_result, sobel_last_result_nxt;
 
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
@@ -95,7 +95,7 @@ module core (                       //Don't modify interface
 	// sobel direction
 	wire [1:0] sobel_direction[0:1];
 	wire [10:0] out_G[0:1];
-	reg [10:0] Gx[0:1], Gy[0:1];
+	reg signed [10:0] Gx[0:1], Gy[0:1];
 	reg [10:0] G_result[0:1], G_result_nxt[0:1];
 	reg [10:0] G_23_result[0:1];
 	integer i, j;
@@ -454,6 +454,7 @@ module core (                       //Don't modify interface
 			SRAM_D[i] = 0;
 			sram_op_valid_nxt[i] = 0;
 			conv_result_nxt[i] = conv_result[i];
+			sg_y_result_nxt[i] = sg_y_result[i];
 		end
 		for(i=0; i<3; i=i+1) begin
 			median_final_map_nxt[i] = median_final_map[i];
@@ -664,9 +665,12 @@ module core (                       //Don't modify interface
 							sg_y_result_nxt[3] = $signed(sg_y_result[3]) + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
 							G_result_nxt[0] = out_G[0];
 							G_result_nxt[1] = out_G[1];
-							G_23_result[0] = (conv_result[2][16]? (~conv_result[2] + 1): conv_result[2]) + (sg_y_result[2][10]? (~sg_y_result[2] + 1): conv_result[2]);
-							G_23_result[1] = (conv_result[3][16]? (~conv_result[3] + 1): conv_result[3]) + (sg_y_result[3][10]? (~sg_y_result[3] + 1): conv_result[3]);
-
+							G_23_result[0] = (conv_result_nxt[2][16]? (~conv_result_nxt[2] + 1): conv_result_nxt[2]) + (sg_y_result_nxt[2][10]? (~sg_y_result_nxt[2] + 1): sg_y_result_nxt[2]);
+							G_23_result[1] = (conv_result_nxt[3][16]? (~conv_result_nxt[3] + 1): conv_result_nxt[3]) + (sg_y_result_nxt[3][10]? (~sg_y_result_nxt[3] + 1): sg_y_result_nxt[3]);
+							Gx[0] = conv_result_nxt[2];
+							Gx[1] = conv_result_nxt[3];
+							Gy[0] = sg_y_result_nxt[2];
+							Gy[1] = sg_y_result_nxt[3];
 							case(sobel_direction[0])
 								DIR0: out_data_nxt = (out_G[0] >= out_G[1])? out_G[0] : 0;
 								DIR45: out_data_nxt = (out_G[0] >= (G_23_result[1]))? out_G[0] : 0;
@@ -751,6 +755,7 @@ module core (                       //Don't modify interface
 			for(i=0; i<4; i=i+1) begin
 				sram_op_valid[i] <= 0;
 				conv_result[i] <= 0;
+				sg_y_result[i] <= 0;
 			end
 			conv_last_result <= 0;
 			load_add_offset <= 0;
@@ -779,6 +784,7 @@ module core (                       //Don't modify interface
 			for(i=0; i<4; i=i+1) begin
 				sram_op_valid[i] <= sram_op_valid_nxt[i];
 				conv_result[i] <= conv_result_nxt[i];
+				sg_y_result[i] <= sg_y_result_nxt[i];
 			end
 			conv_last_result <= conv_last_result_nxt;
 			load_add_offset <= load_add_offset_nxt;
@@ -816,15 +822,17 @@ module SobelDirection (
 	localparam DIR135 = 2'd3;
 
 	wire [9:0] abs_Gx, abs_Gy;
-	wire signed [16:0] tan225, tan675;
+	wire [16:0] shifted_Gy;
+	wire [18:0] tan225, tan675;
 	reg [1:0] o_dir_reg, o_dir_nxt;
 	reg [10:0] o_G_reg, o_G_nxt;
 
 	assign abs_Gx = (Gx[10])? ~Gx + 1 : Gx;
 	assign abs_Gy = (Gy[10])? ~Gy + 1 : Gy;
 
-	assign tan225 = abs_Gx + abs_Gx << 2 + abs_Gx << 4 + abs_Gx << 5;
-	assign tan675 = abs_Gx + abs_Gx << 2 + abs_Gx << 4 + abs_Gx << 5 + abs_Gx << 8;
+	assign tan225 = abs_Gx + (abs_Gx << 2) + (abs_Gx << 4) + (abs_Gx << 5);
+	assign tan675 = abs_Gx + (abs_Gx << 2) + (abs_Gx << 4) + (abs_Gx << 5) + (abs_Gx << 8);
+	assign shifted_Gy = abs_Gy << 7;
 
 	assign o_dir = o_dir_reg;
 	assign o_G = o_G_reg;
@@ -836,17 +844,17 @@ module SobelDirection (
 		end else if(abs_Gx == 0) begin
 			o_dir_nxt = DIR90;
 		end else if(Gx[10] == Gy[10]) begin
-			if(abs_Gy < tan225) begin
+			if(shifted_Gy < tan225) begin
 				o_dir_nxt = DIR0;
-			end else if(abs_Gy <= tan675) begin
+			end else if(shifted_Gy <= tan675) begin
 				o_dir_nxt = DIR45;
 			end else begin
 				o_dir_nxt = DIR90;
 			end
 		end else begin
-			if(abs_Gy < tan225) begin
+			if(shifted_Gy < tan225) begin
 				o_dir_nxt = DIR0;
-			end else if(abs_Gy <= tan675) begin
+			end else if(shifted_Gy <= tan675) begin
 				o_dir_nxt = DIR135;
 			end else begin
 				o_dir_nxt = DIR90;
