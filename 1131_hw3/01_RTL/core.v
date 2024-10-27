@@ -68,7 +68,7 @@ module core (                       //Don't modify interface
 	// SRAM
 	reg SRAM_CEN[0:3], SRAM_WEN[0:3];
 	wire [7:0] SRAM_Q [0:3];		// output data
-	reg [11:0] SRAM_Q_real [0:3];	// output data condisering valid
+	reg [7:0] SRAM_Q_real [0:3];	// output data condisering valid
 	reg [7:0] SRAM_D [0:3];		// input data
 	reg [11:0] SRAM_A [0:3];
 	reg [8:0] load_add_offset, load_add_offset_nxt;	// for load operation and also for display channel offset
@@ -199,8 +199,8 @@ module core (                       //Don't modify interface
 	// accessed address in SRAM
 	assign dis_ori_addr[1] = (origin_y << 1) + ((origin_x > 3)? 1 : 0);		// address of origin in SRAM
 	assign dis_ori_addr[0] = (sram_idx[1] == 4)? dis_ori_addr[1] - 1 : dis_ori_addr[1];	// if origin_y = 0
-	assign dis_ori_addr[2] = (sram_idx[1] == 3)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
-	assign dis_ori_addr[3] = (sram_idx[1] == 2)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
+	assign dis_ori_addr[2] = (sram_idx[1] >= 3)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
+	assign dis_ori_addr[3] = (sram_idx[1] >= 2)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
 
 	// genvar gi;  // for generate block
 	// generate
@@ -273,7 +273,7 @@ module core (                       //Don't modify interface
 					state_nxt = S_OUTPUT;
 			end
 			S_MEDIAN: begin
-				if(cnt >> 4 == 4) begin	// including one whole process after the 4th channel
+				if(cnt >> 4 == 4 && cnt_display == 4) begin	// including one whole process after the 4th channel
 					state_nxt = S_MEDIAN_OUTPUT;
 				end
 			end
@@ -474,8 +474,7 @@ module core (                       //Don't modify interface
 						end
 						1: begin
 							conv_result_nxt[0] = conv_result[0] + SRAM_Q_real[sram_idx_good[0]] + (SRAM_Q_real[sram_idx_good[1]] << 1) + SRAM_Q_real[sram_idx_good[2]];
-							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx_good[1]] + (SRAM_Q_real[sram_idx_good[2]] << 1) + SRAM_Q_real[sram_idx_good[3]];
-							
+							conv_result_nxt[1] = conv_result[1] + SRAM_Q_real[sram_idx_good[1]] + (SRAM_Q_real[sram_idx_good[2]] << 1) + SRAM_Q_real[sram_idx_good[3]];			
 							// out_data_nxt = (conv_result[1] + 4'b1000) >> 4;	// already rounded in the previous cycle
 							
 						end
@@ -484,12 +483,6 @@ module core (                       //Don't modify interface
 							conv_result_nxt[1] = conv_result[1] + (SRAM_Q_real[sram_idx_good[1]] << 1) + (SRAM_Q_real[sram_idx_good[2]] << 2) + (SRAM_Q_real[sram_idx_good[3]] << 1);
 							conv_result_nxt[2] = conv_result[2] + (SRAM_Q_real[sram_idx_good[0]]) + (SRAM_Q_real[sram_idx_good[1]] << 1) + (SRAM_Q_real[sram_idx_good[2]]);
 							conv_result_nxt[3] = conv_result[3] + (SRAM_Q_real[sram_idx_good[1]]) + (SRAM_Q_real[sram_idx_good[2]] << 1) + (SRAM_Q_real[sram_idx_good[3]]);
-							// $display("SRAM_Q_real[sram_idx_good[0]] = %d, SRAM_Q_real[sram_idx_good[1]] = %d, SRAM_Q_real[sram_idx_good[2]] = %d, SRAM_Q_real[sram_idx_good[3]] = %d", SRAM_Q_real[sram_idx_good[0]], SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]], SRAM_Q_real[sram_idx_good[3]]);
-							// $display("SRAM_Q_real[sram_idx_good[0]] * 2 = %d, SRAM_Q_real[sram_idx_good[1]] * 4 = %d, SRAM_Q_real[sram_idx_good[2]] *2 = %d, SRAM_Q_real[sram_idx_good[3]] = %d", SRAM_Q_real[sram_idx_good[0]] << 1, SRAM_Q_real[sram_idx_good[1]] << 2, SRAM_Q_real[sram_idx_good[2]] << 1, SRAM_Q_real[sram_idx_good[3]]);
-							// $display("conv_result[0] + SRAM_Q_real[sram_idx_good[0]] << 1 + SRAM_Q_real[sram_idx_good[1]] << 2 + SRAM_Q_real[sram_idx_good[2]] << 1 = %d", conv_result[0] + SRAM_Q_real[sram_idx_good[0]] << 1 + SRAM_Q_real[sram_idx_good[1]] << 2 + SRAM_Q_real[sram_idx_good[2]] << 1);
-							// $display("conv_result_nxt[1] = %d", conv_result_nxt[1]);
-							// out_data_nxt = (conv_result[2] + 4'b1000) >> 4;
-							// conv_last_result_nxt = (conv_result[3] + 4'b1000) >> 4;
 							
 						end
 						3: begin
@@ -498,7 +491,6 @@ module core (                       //Don't modify interface
 							conv_result_nxt[2] = conv_result[2] + (SRAM_Q_real[sram_idx_good[0]] << 1) + (SRAM_Q_real[sram_idx_good[1]] << 2) + (SRAM_Q_real[sram_idx_good[2]] << 1);
 							conv_result_nxt[3] = conv_result[3] + (SRAM_Q_real[sram_idx_good[1]] << 1) + (SRAM_Q_real[sram_idx_good[2]] << 2) + (SRAM_Q_real[sram_idx_good[3]] << 1);
 							// out_data_nxt = conv_last_result;	// already rounded in the previous cycle
-							
 						end
 					endcase
 				end else if (state == S_CONV_OUTPUT) begin
@@ -518,23 +510,23 @@ module core (                       //Don't modify interface
 						for(i=0; i<4; i=i+1) begin
 							acc_ori_addr = dis_ori_addr[i] + {cnt_display << 1} - 2;
 							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr < 16 && acc_ori_addr >= 0) begin
-								SRAM_CEN[sram_idx[i]] = 0;
-								SRAM_A[sram_idx[i]] = acc_ori_addr + (cnt);
+								SRAM_CEN[sram_idx_good[i]] = 0;
+								SRAM_A[sram_idx_good[i]] = acc_ori_addr + (cnt);
 								sram_op_valid_nxt[i] = 1;
 							end
 						end
 					end
 					// set median map
-					if(cnt_display != 1 && cnt != 64) begin
+					if(cnt_display != 1 ) begin
 						if(cnt_display == 0) begin
 							for(i=0; i<3; i++) begin
-								median_map_nxt[6][i] = in_sort0[i];
-								median_map_nxt[7][i] = in_sort1[i];
+								median_map_nxt[6][i] = out_sort0[i];
+								median_map_nxt[7][i] = out_sort1[i];
 							end
 						end else begin
 							for(i=0; i<3; i++) begin
-								median_map_nxt[(cnt_display-2) << 1][i] = in_sort0[i];
-								median_map_nxt[(cnt_display-2) << 1 + 1][i] = in_sort1[i];
+								median_map_nxt[(cnt_display-2) << 1][i] = out_sort0[i];
+								median_map_nxt[((cnt_display-2) << 1) + 1][i] = out_sort1[i];
 							end
 						end
 					end
@@ -547,12 +539,12 @@ module core (                       //Don't modify interface
 							in_sort1 = {median_map[1][1], median_map[3][1], median_map[5][1]};
 							in_sort2 = {median_map[1][2], median_map[3][2], median_map[5][2]};
 							in_sort3 = {out_sort4[0], out_sort3[1], out_sort2[2]};
-							in_sort4 = {median_map[2][0], median_map[4][0], median_map[6][0]};
+							in_sort4 = {median_map[2][0], median_map[4][0], out_sort0[0]};
 							out_data_nxt = conv_last_result;		// median of 3
 						end
 						1: begin
-							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
-							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort0 = {SRAM_Q_real[sram_idx_good[0]], SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]], SRAM_Q_real[sram_idx_good[3]]};
 							in_sort2 = {out_sort2[0], out_sort1[1], out_sort0[2]};
 							in_sort3 = {median_map[2][1], median_map[4][1], median_map[6][1]};
 							in_sort4 = {median_map[2][2], median_map[4][2], median_map[6][2]};
@@ -560,27 +552,28 @@ module core (                       //Don't modify interface
 							out_data_nxt = out_sort3[1];		// median of 0
 						end
 						2: begin
-							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
-							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
-							in_sort2 = {median_map[6][0], median_map[6][1], median_map[6][2]};
-							in_sort3 = {median_map[7][0], median_map[7][1], median_map[7][2]};
+							in_sort0 = {SRAM_Q_real[sram_idx_good[0]], SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]], SRAM_Q_real[sram_idx_good[3]]};
+							in_sort2 = {median_map[3][0], median_map[5][0], median_map[7][0]};
+							in_sort3 = {median_map[3][1], median_map[5][1], median_map[7][1]};
+							in_sort4 = {median_map[3][2], median_map[5][2], median_map[7][2]};
 							median_final_map_nxt[1] = out_sort3[1];
 							median_final_map_nxt[0] = out_sort4[0];
 							out_data_nxt = out_sort2[1];		// median of 1
 						end
 						3: begin
-							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
-							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
+							in_sort0 = {SRAM_Q_real[sram_idx_good[0]], SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]], SRAM_Q_real[sram_idx_good[3]]};
 							in_sort2 = {median_final_map[0], median_final_map[1], median_final_map[2]};
 							in_sort3 = {out_sort4[0], out_sort3[1], out_sort2[2]};
 							// no output
 						end
 						4: begin
-							in_sort0 = {SRAM_Q_real[sram_idx[0]], SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]]};
-							in_sort1 = {SRAM_Q_real[sram_idx[1]], SRAM_Q_real[sram_idx[2]], SRAM_Q_real[sram_idx[3]]};
-							in_sort2 = {median_map[0][0], median_map[2][0], median_map[4][0]};
-							in_sort3 = {median_map[0][1], median_map[2][1], median_map[4][1]};
-							in_sort4 = {median_map[0][2], median_map[2][2], median_map[4][2]};
+							in_sort0 = {SRAM_Q_real[sram_idx_good[0]], SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]]};
+							in_sort1 = {SRAM_Q_real[sram_idx_good[1]], SRAM_Q_real[sram_idx_good[2]], SRAM_Q_real[sram_idx_good[3]]};
+							in_sort2 = {median_map[0][0], median_map[2][0], out_sort0[0]};
+							in_sort3 = {median_map[0][1], median_map[2][1], out_sort0[1]};
+							in_sort4 = {median_map[0][2], median_map[2][2], out_sort0[2]};
 							out_data_nxt = out_sort2[1];		// median of 2
 							conv_last_result_nxt = out_sort3[1];
 						end
@@ -620,6 +613,14 @@ module core (                       //Don't modify interface
 			end
 			conv_last_result <= 0;
 			load_add_offset <= 0;
+			for (i=0; i<3; i=i+1) begin
+				median_final_map[i] <= 0;
+			end
+			for (i=0; i<8; i=i+1) begin
+				for (j=0; j<3; j=j+1) begin
+					median_map[i][j] <= 0;
+				end
+			end
 		end else begin
 			state <= state_nxt;
 			channel_depth <= channel_depth_nxt;
@@ -636,6 +637,14 @@ module core (                       //Don't modify interface
 			end
 			conv_last_result <= conv_last_result_nxt;
 			load_add_offset <= load_add_offset_nxt;
+			for (i=0; i<3; i=i+1) begin
+				median_final_map[i] <= median_final_map_nxt[i];
+			end
+			for (i=0; i<8; i=i+1) begin
+				for (j=0; j<3; j=j+1) begin
+					median_map[i][j] <= median_map_nxt[i][j];
+				end
+			end
 		end
 	end
 
