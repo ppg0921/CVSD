@@ -376,7 +376,7 @@ module core (                       //Don't modify interface
 				end
 			end
 			S_SOBEL_NMS: begin
-				if(cnt_display == 3) begin
+				if(cnt_display == 4) begin
 					cnt_display_nxt = 0;
 					cnt_nxt = cnt + 16;	// next channel
 				end else begin
@@ -652,7 +652,7 @@ module core (                       //Don't modify interface
 			end
 			S_SOBEL_NMS: begin
 				// if(state == S_SOBEL_NMS) begin
-					if(cnt != 64) begin
+					if(cnt != 64 && cnt_display != 4) begin
 						for(i=0; i<4; i=i+1) begin
 							acc_ori_addr[i] = dis_ori_addr[i] + {cnt_display << 1} - 2;
 							if(sram_idx[i]>=0 && sram_idx[i]<=3 && acc_ori_addr[i] < 16 && acc_ori_addr[i] >= 0) begin
@@ -662,22 +662,18 @@ module core (                       //Don't modify interface
 							end
 						end
 					end
-					if(cnt!=0)
+					if(cnt!=0 && cnt_display != 4)
 						out_valid_nxt = 1;
 					case(cnt_display)
 						0: begin
-							conv_result_nxt[2] = $signed(conv_result[2]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
-							conv_result_nxt[3] = $signed(conv_result[3]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
-							sg_y_result_nxt[2] = sg_y_result[2] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
-							sg_y_result_nxt[3] = sg_y_result[3] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
 							G_result_nxt[0] = out_G[0];
 							G_result_nxt[1] = out_G[1];
-							G_23_result[0] = (conv_result_nxt[2][16]? (~conv_result_nxt[2] + 1): conv_result_nxt[2]) + (sg_y_result_nxt[2][10]? (~sg_y_result_nxt[2] + 1): sg_y_result_nxt[2]);
-							G_23_result[1] = (conv_result_nxt[3][16]? (~conv_result_nxt[3] + 1): conv_result_nxt[3]) + (sg_y_result_nxt[3][10]? (~sg_y_result_nxt[3] + 1): sg_y_result_nxt[3]);
-							Gx[0] = conv_result_nxt[2];
-							Gx[1] = conv_result_nxt[3];
-							Gy[0] = sg_y_result_nxt[2];
-							Gy[1] = sg_y_result_nxt[3];
+							G_23_result[0] = (conv_result[2][16]? (~conv_result[2] + 1): conv_result[2]) + (sg_y_result[2][10]? (~sg_y_result[2] + 1): sg_y_result[2]);
+							G_23_result[1] = (conv_result[3][16]? (~conv_result[3] + 1): conv_result[3]) + (sg_y_result[3][10]? (~sg_y_result[3] + 1): sg_y_result[3]);
+							Gx[0] = conv_result[2];
+							Gx[1] = conv_result[3];
+							Gy[0] = sg_y_result[2];
+							Gy[1] = sg_y_result[3];
 							case(sobel_direction[0])
 								DIR0: out_data_nxt = (out_G[0] >= out_G[1])? out_G[0] : 0;
 								DIR45: out_data_nxt = (out_G[0] >= (G_23_result[1]))? out_G[0] : 0;
@@ -727,12 +723,18 @@ module core (                       //Don't modify interface
 							conv_result_nxt[3] = $signed(conv_result[3]) - 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[1]]}) + 2*$signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
 							sg_y_result_nxt[0] = sg_y_result[0] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
 							sg_y_result_nxt[1] = sg_y_result[1] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
-							Gx[0] = conv_result_nxt[0];
-							Gx[1] = conv_result_nxt[1];
-							Gy[0] = sg_y_result_nxt[0];
-							Gy[1] = sg_y_result_nxt[1];
 							out_data_nxt = sobel_last_result;
 							// out_data_nxt = conv_last_result;	// already rounded in the previous cycle
+						end
+						4: begin
+							Gx[0] = conv_result[0];
+							Gx[1] = conv_result[1];
+							Gy[0] = sg_y_result[0];
+							Gy[1] = sg_y_result[1];
+							conv_result_nxt[2] = $signed(conv_result[2]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							conv_result_nxt[3] = $signed(conv_result[3]) - ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});
+							sg_y_result_nxt[2] = sg_y_result[2] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[0]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[2]]});
+							sg_y_result_nxt[3] = sg_y_result[3] + ($signed({1'b0, SRAM_Q_real[sram_idx_good[1]]})) + 2*($signed({1'b0, SRAM_Q_real[sram_idx_good[2]]})) + $signed({1'b0, SRAM_Q_real[sram_idx_good[3]]});	
 						end
 					endcase
 					
