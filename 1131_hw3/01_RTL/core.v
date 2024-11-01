@@ -612,8 +612,8 @@ module core (                       //Don't modify interface
 					end
 					case(cnt_display)
 						0: begin
-							in_sort0 = {SRAM_Q_reg[sram_idx_good[0]], SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]]};
-							in_sort1 = {SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]], SRAM_Q_reg[sram_idx_good[3]]};
+							in_sort0 = {SRAM_Q_reg[sram_idx_good_reg[0]], SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]]};
+							in_sort1 = {SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]], SRAM_Q_reg[sram_idx_good_reg[3]]};
 							in_sort2 = {median_map[0][0], median_map[2][0], out_sort0[0]};
 							in_sort3 = {median_map[0][1], median_map[2][1], out_sort0[1]};
 							in_sort4 = {median_map[0][2], median_map[2][2], out_sort0[2]};
@@ -631,8 +631,8 @@ module core (                       //Don't modify interface
 							
 						end
 						2: begin
-							in_sort0 = {SRAM_Q_reg[sram_idx_good[0]], SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]]};
-							in_sort1 = {SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]], SRAM_Q_reg[sram_idx_good[3]]};
+							in_sort0 = {SRAM_Q_reg[sram_idx_good_reg[0]], SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]]};
+							in_sort1 = {SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]], SRAM_Q_reg[sram_idx_good_reg[3]]};
 							in_sort2 = {out_sort2[0], out_sort1[1], out_sort0[2]};
 							in_sort3 = {median_map[2][1], median_map[4][1], median_map[6][1]};
 							in_sort4 = {median_map[2][2], median_map[4][2], median_map[6][2]};
@@ -641,8 +641,8 @@ module core (                       //Don't modify interface
 							
 						end
 						3: begin
-							in_sort0 = {SRAM_Q_reg[sram_idx_good[0]], SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]]};
-							in_sort1 = {SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]], SRAM_Q_reg[sram_idx_good[3]]};
+							in_sort0 = {SRAM_Q_reg[sram_idx_good_reg[0]], SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]]};
+							in_sort1 = {SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]], SRAM_Q_reg[sram_idx_good_reg[3]]};
 							in_sort2 = {median_map[3][0], median_map[5][0], median_map[7][0]};
 							in_sort3 = {median_map[3][1], median_map[5][1], median_map[7][1]};
 							in_sort4 = {median_map[3][2], median_map[5][2], median_map[7][2]};
@@ -653,8 +653,8 @@ module core (                       //Don't modify interface
 							// no output
 						end
 						4: begin
-							in_sort0 = {SRAM_Q_reg[sram_idx_good[0]], SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]]};
-							in_sort1 = {SRAM_Q_reg[sram_idx_good[1]], SRAM_Q_reg[sram_idx_good[2]], SRAM_Q_reg[sram_idx_good[3]]};
+							in_sort0 = {SRAM_Q_reg[sram_idx_good_reg[0]], SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]]};
+							in_sort1 = {SRAM_Q_reg[sram_idx_good_reg[1]], SRAM_Q_reg[sram_idx_good_reg[2]], SRAM_Q_reg[sram_idx_good_reg[3]]};
 							in_sort2 = {median_final_map[0], median_final_map[1], median_final_map[2]};
 							in_sort3 = {out_sort4[0], out_sort3[1], out_sort2[2]};
 							
