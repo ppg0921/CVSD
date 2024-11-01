@@ -232,7 +232,7 @@ module core (                       //Don't modify interface
 	
 	// accessed address in SRAM
 	assign dis_ori_addr[1] = (origin_y << 1) + ((origin_x > 3)? 1 : 0);		// address of origin in SRAM
-	assign dis_ori_addr[0] = (sram_idx[1] == 4)? dis_ori_addr[1] - 1 : dis_ori_addr[1];	// if origin_y = 0
+	assign dis_ori_addr[0] = (sram_idx[1] == 0)? dis_ori_addr[1] - 1 : dis_ori_addr[1];	// if origin_y = 0
 	assign dis_ori_addr[2] = (sram_idx[1] >= 3)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
 	assign dis_ori_addr[3] = (sram_idx[1] >= 2)? dis_ori_addr[1] + 1 : dis_ori_addr[1];
 
