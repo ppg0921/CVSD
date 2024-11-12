@@ -628,17 +628,15 @@ module MinMax(
   reg [1:0] state, state_nxt;
   reg [127:0] reg1_nxt, reg2_nxt;
   reg [2:0] cnt, cnt_nxt;
-  reg o_valid_reg, o_valid_nxt;
 
   assign o_reg1 = reg1_nxt;
   assign o_reg2 = reg2_nxt;
-  assign o_final_out = (cnt == 7)? reg1_nxt : reg2_nxt;
-  assign o_valid = (state == S_DONE || (state == S_CALC && cnt == 7 && i_valid));
+  assign o_final_out = (cnt == 0)? reg1 : reg2;
+  assign o_valid = (state == S_DONE);
 
   // FSM
   always @(*) begin
     state_nxt = state;
-    o_valid_nxt = 0;
     case(state)
       S_IDLE: begin
         if(i_valid) state_nxt = S_CALC;
@@ -648,8 +646,8 @@ module MinMax(
           state_nxt = S_DONE;
       end
       S_DONE: begin
-        state_nxt = S_IDLE;
-        o_valid_nxt = 1;
+        if(cnt == 1)
+          state_nxt = S_IDLE;
       end
     endcase
   end
@@ -657,7 +655,11 @@ module MinMax(
   // Counter
   always @(*) begin
     cnt_nxt = cnt;
-    if(i_valid) begin
+    if(state == S_DONE) begin
+      cnt_nxt = cnt + 1;
+      if(cnt == 1)
+        cnt_nxt = 0;
+    end else if(i_valid) begin
       if(cnt == 7)
         cnt_nxt = 0;
       else
