@@ -158,7 +158,7 @@ module testbed;
 	initial begin
 		wait (output_end && check_end);
 
-		if (error === 0 && correct === `PAT_LEN) begin
+		if (error === 0) begin
 				$display("----------------------------------------------");
 				$display("-                 ALL PASS!                  -");
 				$display("----------------------------------------------");

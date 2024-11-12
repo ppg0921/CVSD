@@ -3,7 +3,7 @@
 `define HCYCLE      (`CYCLE/2)
 `define MAX_CYCLE   120000
 
-`define LEN 1000
+`define LEN 1024
 // `define INST "inst.dat"
 `define A "../00_TB/MY_PATTERN/a.dat"
 `define B "../00_TB/MY_PATTERN/b.dat"
@@ -108,11 +108,13 @@ module tb_alu ();
 		i = 0;
 		err_count = 0;
 		@(posedge clk);
+        #(`HCYCLE);
 		while (i < `LEN) begin
             #(`CYCLE) alu_valid = 1;
             a = a_r[i];
             b = b_r[i];
             #(`CYCLE) alu_valid = 0;
+            #(`CYCLE)
 
             // opcode = inst[i][6:0];
             // funct7 = inst[i][31:25];
