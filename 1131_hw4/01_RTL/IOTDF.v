@@ -35,7 +35,7 @@ output [127:0] iot_out;
   wire crypt_done, crc_done, minmax_done;
   wire [63:0] crypt_plaintext_out, crypt_key_out;
   wire [47:0] crypt_text_intermediate_out;
-  wire [130:0] crc_divisor_out, crc_remainder_out;
+  wire [6:0] crc_remainder_out;
   wire [127:0] minmax_reg1_out, minmax_reg2_out;
   reg total_o_valid;
   reg o_busy_reg, o_busy_nxt, to_module_valid, to_module_valid_nxt;
@@ -59,12 +59,13 @@ output [127:0] iot_out;
   CRC crc0 (
     .i_clk(clk),
     .i_rst(rst),
-    .i_valid(to_module_valid_nxt),
-    .i_remainder(data),
+    .i_valid(to_module_valid_nxt || in_en),
+    .i_remainder(data[2:0]),
+    .iot_in(loaded_data[7:0]),
     // .i_divisor(divisor),
-    .o_remainder(crc_remainder_out),
+    .o_remainder(crc_remainder_out[2:0]),
     // .o_divisor(crc_divisor_out),
-    .o_final_out(crc_final_out),
+    .o_final_out(crc_remainder_out[6:3]),
     .o_valid(crc_o_valid)
   );
 
@@ -125,7 +126,7 @@ output [127:0] iot_out;
           cnt_data_nxt = cnt_data + 1;
         end
       end
-      S_MINMAX: begin
+      S_MINMAX, S_CRC: begin
         o_busy_nxt = 0;
         if(in_en)
           cnt_load_nxt = cnt_load + 1;
@@ -135,7 +136,7 @@ output [127:0] iot_out;
           //   o_busy_nxt = 1;
         end
       end
-      S_CRYPT, S_CRC: begin
+      S_CRYPT: begin
         if(in_en)
           cnt_load_nxt = cnt_load + 1;
         if(cnt_load == 15) begin
@@ -164,7 +165,7 @@ output [127:0] iot_out;
       end
       FN_CRC_GEN: begin
         total_o_valid = crc_o_valid;
-        iot_data_out_nxt = crc_final_out;
+        iot_data_out_nxt = {{124'b0}, crc_remainder_out[6:3]};
         if(cnt_load != 0 && cnt_data != 0)
           to_module_valid_nxt = 1;
       
@@ -209,13 +210,7 @@ output [127:0] iot_out;
         if(in_en) begin
           loaded_data_nxt[7:0] = iot_in;
         end
-        if(crc_o_valid || (cnt_load == 15 && cnt_data == 0)) begin
-          data_nxt = {loaded_data_nxt, {3'b0}}; // dividend
-          divisor_nxt = {{4'b1110}, {127'b0}};
-        end else begin
-          data_nxt = crc_remainder_out;
-          divisor_nxt = divisor;
-        end
+        data_nxt = {{123'b0}, crc_remainder_out};
       end
     endcase
   end
@@ -520,7 +515,7 @@ module CRC(
 
   assign o_remainder = o_remainder_nxt;
   // assign o_divisor = o_divisor_nxt;
-  assign o_final_out = {{125'b0}, o_remainder_nxt[130:128]};
+  assign o_final_out = {i_remainder, {1'b0}};
   assign o_valid = o_valid_reg;
   // Counter
   always @(*) begin
@@ -594,7 +589,6 @@ module CRC(
       S_CALC_B: o_remainder_nxt = calcB(iot_in, i_remainder);
       S_CALC_C: o_remainder_nxt = calcC(iot_in, i_remainder);
     endcase
-    o_final_out = {i_remainder, {1'b0}};
     o_valid_nxt = (cnt == 15);
   end
 
@@ -634,6 +628,7 @@ module MinMax(
   reg [1:0] state, state_nxt;
   reg [127:0] reg1_nxt, reg2_nxt;
   reg [2:0] cnt, cnt_nxt;
+  reg o_valid_reg, o_valid_nxt;
 
   assign o_reg1 = reg1_nxt;
   assign o_reg2 = reg2_nxt;
@@ -643,6 +638,7 @@ module MinMax(
   // FSM
   always @(*) begin
     state_nxt = state;
+    o_valid_nxt = 0;
     case(state)
       S_IDLE: begin
         if(i_valid) state_nxt = S_CALC;
@@ -651,7 +647,10 @@ module MinMax(
         if(cnt == 7 && i_valid)
           state_nxt = S_DONE;
       end
-      S_DONE: state_nxt = S_IDLE;
+      S_DONE: begin
+        state_nxt = S_IDLE;
+        o_valid_nxt = 1;
+      end
     endcase
   end
 
