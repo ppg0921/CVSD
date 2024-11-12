@@ -59,7 +59,7 @@ output [127:0] iot_out;
   CRC crc0 (
     .i_clk(clk),
     .i_rst(rst),
-    .i_valid(to_module_valid),
+    .i_valid(to_module_valid_nxt),
     .i_remainder(data),
     // .i_divisor(divisor),
     .o_remainder(crc_remainder_out),
@@ -165,7 +165,7 @@ output [127:0] iot_out;
       FN_CRC_GEN: begin
         total_o_valid = crc_o_valid;
         iot_data_out_nxt = crc_final_out;
-        if(crc_o_valid || (cnt_load == 15 && cnt_data == 0))
+        if(cnt_load != 0 && cnt_data != 0)
           to_module_valid_nxt = 1;
       
         // to_module_valid_nxt = (cnt_load == 0 && cnt_data != 0 && in_en);
@@ -207,7 +207,7 @@ output [127:0] iot_out;
       end
       S_CRC: begin
         if(in_en) begin
-          loaded_data_nxt[cnt_load*8 +: 8] = iot_in;
+          loaded_data_nxt[7:0] = iot_in;
         end
         if(crc_o_valid || (cnt_load == 15 && cnt_data == 0)) begin
           data_nxt = {loaded_data_nxt, {3'b0}}; // dividend
@@ -493,39 +493,40 @@ module CRC(
   input i_clk,
   input i_rst,
   input i_valid,
-  input [130:0] i_remainder,
+  input [2:0] i_remainder,
+  input [7:0] iot_in,
+
   // input [130:0] i_divisor,
-  output [130:0] o_remainder,
+  output [2:0] o_remainder,
   // output [130:0] o_divisor,
-  output [127:0] o_final_out,
+  output [3:0] o_final_out,
   output o_valid
 );
   // state
   localparam S_IDLE = 2'd0;
-  localparam S_CALC = 2'd1;
-  localparam S_DONE = 2'd2;
+  localparam S_CALC_A = 2'd1;
+  localparam S_CALC_B = 2'd2;
+  localparam S_CALC_C = 2'd3;
 
   localparam DIVISOR = {{4'b1110}, {127'b0}};
   
 
   reg [1:0] state, state_nxt;
-  reg [130:0] data_tmp, o_remainder_nxt, o_divisor_nxt;
+  reg [2:0] o_remainder_nxt;
   // reg [2:0] crc, crc_nxt;
   // core can handle crc on its own
-  reg [7:0] cnt, cnt_nxt;
+  reg [3:0] cnt, cnt_nxt;
+  reg o_valid_reg, o_valid_nxt;
 
   assign o_remainder = o_remainder_nxt;
   // assign o_divisor = o_divisor_nxt;
   assign o_final_out = {{125'b0}, o_remainder_nxt[130:128]};
-  assign o_valid = (cnt == 127);
+  assign o_valid = o_valid_reg;
   // Counter
   always @(*) begin
     cnt_nxt = 0;
-    if(state == S_CALC || (state == S_IDLE && i_valid)) begin
-      if(cnt == 127)
-        cnt_nxt = 0;
-      else
-        cnt_nxt = cnt + 1;
+    if(i_valid && state != S_IDLE) begin
+      cnt_nxt = cnt + 1;
     end
   end
   // FSM
@@ -533,30 +534,68 @@ module CRC(
     state_nxt = state;
     case(state)
       S_IDLE: begin
-        if(i_valid) state_nxt = S_CALC;
+        if(i_valid) state_nxt = S_CALC_A;
       end
-      S_CALC: begin
-        if(cnt == 127)
-          state_nxt = S_IDLE;   //! not sure
+      S_CALC_A: begin
+        if(cnt != 15) state_nxt = S_CALC_B;
       end
-      S_DONE: state_nxt = S_IDLE;
+      S_CALC_B: state_nxt = S_CALC_C;
+      S_CALC_C: state_nxt = S_CALC_A;
     endcase
   end
+
+  function [2:0] calcA;
+    input [7:0] i_data;
+    input [2:0] last_remainder;
+    reg [2:0] eleven, one, ten;
+    begin
+      eleven = (i_data[0] ^ i_data[3] ^ i_data[6])? {3'b011}: {3'b000};
+      one = (i_data[1] ^ i_data[4] ^ i_data[7])? {3'b001}: {3'b000};
+      ten = (i_data[2] ^ i_data[5])? {3'b010}: {3'b000};
+      calcA = eleven ^ one ^ ten ^ last_remainder;
+    end
+  endfunction
+
+  function [2:0] calcB;
+    input [7:0] i_data;
+    input [2:0] last_remainder;
+    reg [2:0] eleven, one, ten;
+    begin
+      ten = (i_data[0] ^ i_data[3] ^ i_data[6])? {3'b010}: {3'b000};
+      eleven = (i_data[1] ^ i_data[4] ^ i_data[7])? {3'b011}: {3'b000};
+      one = (i_data[2] ^ i_data[5])? {3'b001}: {3'b000};
+      calcB = eleven ^ one ^ ten ^ last_remainder;
+    end
+  endfunction
+
+  function [2:0] calcC;
+    input [7:0] i_data;
+    input [2:0] last_remainder;
+    reg [2:0] eleven, one, ten;
+    begin
+      one = (i_data[0] ^ i_data[3] ^ i_data[6])? {3'b001}: {3'b000};
+      ten = (i_data[1] ^ i_data[4] ^ i_data[7])? {3'b010}: {3'b000};
+      eleven = (i_data[2] ^ i_data[5])? {3'b011}: {3'b000};
+      calcC = eleven ^ one ^ ten ^ last_remainder;
+    end
+  endfunction
+
 
   // calculation
   always @(*) begin
     o_remainder_nxt = i_remainder;
-    // o_divisor_nxt = i_divisor;
-    data_tmp = 0;
-    if(state == S_CALC || (state == S_IDLE && i_valid)) begin
-      if(i_remainder[130]) begin
-        data_tmp = i_remainder ^ DIVISOR;
-        o_remainder_nxt = {{data_tmp[129:0]}, {1'b1}};
-      end else begin
-        o_remainder_nxt = {i_remainder[129:0], {1'b0}};
+    case(state)
+      S_CALC_A: begin
+        if(cnt == 0) 
+          o_remainder_nxt = calcA(iot_in, {3'b000});
+        else
+          o_remainder_nxt = calcA(iot_in, i_remainder);
       end
-      // o_divisor_nxt = i_divisor >> 1;
-    end
+      S_CALC_B: o_remainder_nxt = calcB(iot_in, i_remainder);
+      S_CALC_C: o_remainder_nxt = calcC(iot_in, i_remainder);
+    endcase
+    o_final_out = {i_remainder, {1'b0}};
+    o_valid_nxt = (cnt == 15);
   end
 
   // Sequential logic
@@ -564,9 +603,11 @@ module CRC(
     if(i_rst) begin
       state <= S_IDLE;
       cnt <= 0;
+      o_valid_reg <= 0;
     end else begin
       state <= state_nxt;
       cnt <= cnt_nxt;
+      o_valid_reg <= o_valid_nxt;
     end
   end
 endmodule
