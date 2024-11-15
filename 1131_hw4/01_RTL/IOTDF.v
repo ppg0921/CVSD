@@ -24,8 +24,9 @@ output [127:0] iot_out;
   localparam S_CRC = 4'd4;   // calculation
   localparam S_OUTPUT = 4'd5;   // output
 
-
-  reg [63:0] data, data_nxt; // Dividend and remainder, biggest, smallest, plaintext
+  reg [2:0] crc_remainder_reg;
+  reg [63:0] data_nxt; // Dividend and remainder, biggest, smallest, plaintext
+  reg [60:0] data;
   reg [63:0] minmax_upper, minmax_upper_nxt;
   reg [127:0] divisor, divisor_nxt; // Divisor, second biggest, second smallest, key
   reg [127:0] iot_data_out, iot_data_out_nxt; // output data
@@ -46,7 +47,7 @@ output [127:0] iot_out;
   ENCRYPT crypt0 (
     .i_clk(clk),
     .i_rst(rst),
-    .plaintext(data[63:0]),
+    .plaintext({data, crc_remainder_reg}),
     .key(divisor[63:0]),
     .i_valid(to_module_valid),
     .i_enable(crypt_enable),
@@ -60,7 +61,7 @@ output [127:0] iot_out;
     .i_clk(clk),
     .i_rst(rst),
     .i_valid(to_module_valid_nxt),
-    .i_remainder(data[2:0]),
+    .i_remainder(crc_remainder_reg),
     .iot_in(loaded_data[7:0]),
     .i_enable(crc_enable),
     // .i_divisor(divisor),
@@ -77,7 +78,7 @@ output [127:0] iot_out;
     .i_valid(to_module_valid_nxt),
     .i_Max(fn_sel == FN_TOP2MAX),
     .i_enable(minmax_enable),
-    .reg1({minmax_upper, data[63:0]}),
+    .reg1({minmax_upper, data, crc_remainder_reg}),
     .reg2(divisor[127:0]),
     .o_reg1(minmax_reg1_out),
     .o_reg2(minmax_reg2_out),
@@ -182,7 +183,7 @@ output [127:0] iot_out;
 
   // Load data
   always @(*) begin
-    data_nxt = data;
+    data_nxt = {data, crc_remainder_reg};
     divisor_nxt = divisor;
     loaded_data_nxt = loaded_data;
     minmax_upper_nxt = minmax_upper;
@@ -221,8 +222,8 @@ output [127:0] iot_out;
   // Sequential logic
   always @(posedge clk or posedge rst) begin
     if(rst) begin
-      data <= 0;
-      divisor <= 0;
+      // data <= 0;
+      // divisor <= 0;
       // iot_data <= 0;
       state <= S_IDLE;
       cnt_data <= 0;
@@ -230,10 +231,11 @@ output [127:0] iot_out;
       o_busy_reg <= 1;
       loaded_data <= 0;
       to_module_valid <= 0;
+      crc_remainder_reg <= 0;
       // minmax_upper <= 0;
     end else begin
-      data <= data_nxt;
-      divisor <= divisor_nxt;
+      // data <= data_nxt;
+      // divisor <= divisor_nxt;
       // iot_data <= iot_data_nxt;
       state <= state_nxt;
       cnt_data <= cnt_data_nxt;
@@ -241,6 +243,7 @@ output [127:0] iot_out;
       o_busy_reg <= o_busy_nxt;
       loaded_data <= loaded_data_nxt;
       to_module_valid <= to_module_valid_nxt;
+      crc_remainder_reg <= data_nxt[2:0];
       // minmax_upper <= minmax_upper_nxt;
     end
   end
@@ -252,6 +255,24 @@ output [127:0] iot_out;
       minmax_upper <= minmax_upper_nxt;
     end
   end
+
+  always @(posedge clk or posedge rst) begin
+    if(rst) begin
+      divisor <= 0;
+      data <= 0;
+    end else if (!crc_enable) begin
+      divisor <= divisor_nxt;
+      data <= data_nxt[63:3];
+    end
+  end
+
+  // always @(posedge clk or posedge rst) begin
+  //   if(rst) begin
+  //     crc_remainder_reg <= 0;
+  //   end else begin
+  //     crc_remainder_reg <= data_nxt[2:0];
+  //   end
+  // end
 
 endmodule
 
@@ -340,10 +361,12 @@ module ENCRYPT(
   assign o_key = key_nxt;
   assign o_plaintext = plaintext_nxt;
   assign o_valid = (state == S_DONE);
-  assign R_now = plaintext[31:0];
-  assign L_now = plaintext[63:32];
-  assign plaintext_gated = plaintext & {64{i_enable}};
-  assign key_gated = key & {64{i_enable}};
+  assign R_now = plaintext_gated[31:0];
+  assign L_now = plaintext_gated[63:32];
+  // assign plaintext_gated = (i_enable)? plaintext : 64'b0;
+  // assign key_gated = (i_enable)? key : 64'b0;
+  assign plaintext_gated = plaintext;
+  assign key_gated = key;
 
   genvar gi;
   generate
@@ -384,16 +407,16 @@ module ENCRYPT(
   // key generation && text tmp --> text intermediate
   always @(*) begin
     for(i = 0; i < 48; i = i + 1) begin
-      key_tmp[i] = key[PC2[i]];
+      key_tmp[i] = key_gated[PC2[i]];
     end
     key_tmp[63:48] = 0;
-    key_nxt = key;
+    key_nxt = key_gated;
     // key_tmp = 0;
     key_permuted = 0;
     case(state)
       S_PC1_ROTATE: begin
         for(i=0; i<56; i=i+1) begin
-          key_tmp[i] = key[PC1[i]];
+          key_tmp[i] = key_gated[PC1[i]];
         end
         if(i_encrypt) 
           key_nxt = {key_tmp[54:28], key_tmp[55], key_tmp[26:0], key_tmp[27]};  // upper and lower part circular shift left repectively
@@ -410,14 +433,14 @@ module ENCRYPT(
       S_ENCRYPT, S_GEN_K1: begin
         if(i_encrypt) begin // left rotate
           if(shift_one_bit)
-            key_nxt = {key[54:28], key[55], key[26:0], key[27]};
+            key_nxt = {key_gated[54:28], key_gated[55], key_gated[26:0], key_gated[27]};
           else
-            key_nxt = {key[53:28], key[55:54], key[25:0], key[27:26]};
+            key_nxt = {key_gated[53:28], key_gated[55:54], key_gated[25:0], key_gated[27:26]};
         end else begin
           if(shift_one_bit)   // cnt == 14 has no effect  // right rotate
-            key_nxt = {key[28], key[55:29], key[0], key[27:1]};
+            key_nxt = {key_gated[28], key_gated[55:29], key_gated[0], key_gated[27:1]};
           else
-            key_nxt = {key[29:28], key[55:30], key[1:0], key[27:2]};
+            key_nxt = {key_gated[29:28], key_gated[55:30], key_gated[1:0], key_gated[27:2]};
         end
         // for(i=0; i<48; i=i+1)
         //   key_tmp[i] = key[PC2[i]];
@@ -435,19 +458,19 @@ module ENCRYPT(
     end
     R_nxt = R_now;
     L_nxt = L_now;
-    plaintext_nxt = plaintext;
+    plaintext_nxt = plaintext_gated;
     case(state)
       S_PC1_ROTATE: begin
         // Initial permutation of plaintext
         for(i=0; i<8; i=i+1) begin
-          plaintext_nxt[63-i] = plaintext[6+(i<<3)];
-          plaintext_nxt[55-i] = plaintext[4+(i<<3)];
-          plaintext_nxt[47-i] = plaintext[2+(i<<3)];
-          plaintext_nxt[39-i] = plaintext[0+(i<<3)];
-          plaintext_nxt[31-i] = plaintext[7+(i<<3)];
-          plaintext_nxt[23-i] = plaintext[5+(i<<3)];
-          plaintext_nxt[15-i] = plaintext[3+(i<<3)];
-          plaintext_nxt[7-i] = plaintext[1+(i<<3)];
+          plaintext_nxt[63-i] = plaintext_gated[6+(i<<3)];
+          plaintext_nxt[55-i] = plaintext_gated[4+(i<<3)];
+          plaintext_nxt[47-i] = plaintext_gated[2+(i<<3)];
+          plaintext_nxt[39-i] = plaintext_gated[0+(i<<3)];
+          plaintext_nxt[31-i] = plaintext_gated[7+(i<<3)];
+          plaintext_nxt[23-i] = plaintext_gated[5+(i<<3)];
+          plaintext_nxt[15-i] = plaintext_gated[3+(i<<3)];
+          plaintext_nxt[7-i] = plaintext_gated[1+(i<<3)];
         end
       end
       S_GEN_K1: begin
@@ -471,11 +494,11 @@ module ENCRYPT(
       end
       S_FIN_PERMUTATION: begin
         for(i=0; i<64; i=i+1) begin
-          plaintext_nxt[i] = plaintext[Final_permutation[i]];
+          plaintext_nxt[i] = plaintext_gated[Final_permutation[i]];
         end
       end
       S_DONE: begin
-        plaintext_nxt = plaintext;
+        plaintext_nxt = plaintext_gated;
       end
     endcase
     
@@ -491,7 +514,6 @@ module ENCRYPT(
       cnt <= cnt_nxt;
     end
   end
-  
 endmodule
 
 module CRC(
