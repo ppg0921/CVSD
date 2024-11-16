@@ -29,7 +29,8 @@ output [127:0] iot_out;
   reg [63:0] minmax_upper, minmax_upper_nxt;
   reg [63:0] divisor, divisor_nxt; // Divisor, second biggest, second smallest, key
   reg [127:0] iot_data_out_nxt; // output data
-  reg [127:0] loaded_data, loaded_data_nxt; // loaded data 
+  // reg [127:0] loaded_data, loaded_data_nxt; // loaded data 
+  reg [7:0] loaded_data [0:15], loaded_data_nxt;
   reg [1:0] state, state_nxt;
   reg [6:0] cnt_data, cnt_data_nxt;
   reg [3:0] cnt_load, cnt_load_nxt;
@@ -44,9 +45,11 @@ output [127:0] iot_out;
   wire crypt_enable, crc_enable, minmax_enable;
   reg minmax_gate, key_update;
   wire dd_gate, key_upper_gate;
-  wire load_gate [0:15];
+  reg load_gate [0:15];
+  wire [127:0] all_loaded_data;
 
   genvar gi;
+  integer i;
 
   ENCRYPT crypt0 (
     .i_clk(clk),
@@ -66,7 +69,7 @@ output [127:0] iot_out;
     .i_rst(rst),
     .i_valid(to_module_valid_nxt),
     .i_remainder(crc_remainder_reg),
-    .iot_in(loaded_data[7:0]),
+    .iot_in(all_loaded_data[7:0]),
     .i_enable(crc_enable),
     // .i_divisor(divisor),
     .o_remainder(crc_remainder_out[2:0]),
@@ -78,7 +81,7 @@ output [127:0] iot_out;
   MinMax minmax0 (
     .i_clk(clk),
     .i_rst(rst),
-    .iot_data(loaded_data),
+    .iot_data(all_loaded_data),
     .i_valid(to_module_valid_nxt),
     .i_Max(fn_sel == FN_TOP2MAX),
     .i_enable(minmax_enable),
@@ -101,11 +104,7 @@ output [127:0] iot_out;
   assign dd_gate = (crypt_enable || (minmax_gate));
   assign key_upper_gate = ((key_update)||(minmax_gate));
 
-  generate
-    for(gi = 0; gi < 16; gi = gi + 1) begin: loadgenerate
-      assign load_gate[gi] = (cnt_load == gi);
-    end
-  endgenerate
+  assign all_loaded_data = {loaded_data[15], loaded_data[14], loaded_data[13], loaded_data[12], loaded_data[11], loaded_data[10], loaded_data[9], loaded_data[8], loaded_data[7], loaded_data[6], loaded_data[5], loaded_data[4], loaded_data[3], loaded_data[2], loaded_data[1], loaded_data[0]};
 
 
 
@@ -204,13 +203,17 @@ output [127:0] iot_out;
   always @(*) begin
     data_nxt = {data, crc_remainder_reg};
     divisor_nxt = divisor;
-    loaded_data_nxt = loaded_data;
+    loaded_data_nxt = loaded_data[0];
     minmax_upper_nxt = minmax_upper;
     key_upper_nxt = key_upper;
+    for(i=0; i<16; i=i+1) begin
+      load_gate[i] = 0;
+    end
     case(state)
       S_MINMAX: begin
         if(in_en)
-          loaded_data_nxt[cnt_load*8 +: 8] = iot_in;
+          loaded_data_nxt = iot_in;
+        load_gate[cnt_load] = in_en;
         {minmax_upper_nxt, data_nxt[63:0]} = minmax_reg1_out;
         // data_nxt = minmax_reg1_out;
         // divisor_nxt = minmax_reg2_out;
@@ -218,15 +221,22 @@ output [127:0] iot_out;
       end
       S_CRYPT: begin
         if(in_en) begin
-          loaded_data_nxt[cnt_load*8 +: 8] = iot_in; 
+          loaded_data_nxt = iot_in; 
           // data_nxt = {{19'b0}, crypt_text_intermediate_out, crypt_plaintext_out};
           // divisor_nxt = {{3'b0}, divisor[127:64], crypt_key_out};
         end
-        if(crypt_o_valid || (cnt_load == 15 && cnt_data == 0)) begin
-          data_nxt[63:0] = {loaded_data_nxt[63:0]};    // plaintext
-          // divisor_nxt = {loaded_data_nxt[127:64], loaded_data_nxt[127:64]};   // key
-          divisor_nxt[63:0] = {loaded_data_nxt[127:64]};
-          key_upper_nxt = {loaded_data_nxt[127:64]};
+        load_gate[cnt_load] = in_en;
+        if ((cnt_load == 15 && cnt_data == 0)) begin
+          // divisor_nxt[63:0] = {loaded_data_nxt, all_loaded_data[120:64]};
+          // key_upper_nxt = {loaded_data_nxt, all_loaded_data[120:64]};
+          data_nxt[63:0] = {all_loaded_data[63:0]};
+          divisor_nxt[63:0] = {loaded_data_nxt, all_loaded_data[119:64]};
+          key_upper_nxt = {loaded_data_nxt, all_loaded_data[119:64]};
+        end else if(crypt_o_valid) begin
+          data_nxt[63:0] = {all_loaded_data[63:0]};    // plaintext
+          
+          divisor_nxt[63:0] = {all_loaded_data[127:64]};
+          key_upper_nxt = {all_loaded_data[127:64]};
         end else begin
           data_nxt[63:0] = {crypt_plaintext_out};
           // divisor_nxt = {divisor[127:64], crypt_key_out};
@@ -236,8 +246,9 @@ output [127:0] iot_out;
       end
       S_CRC: begin
         if(in_en) begin
-          loaded_data_nxt[7:0] = iot_in;
+          loaded_data_nxt = iot_in;
         end
+        load_gate[0] = in_en;
         data_nxt = {{157'b0}, crc_remainder_out};
       end
     endcase
@@ -280,13 +291,13 @@ output [127:0] iot_out;
     end
   end
 
-  always @(posedge clk or posedge rst) begin
-    if(rst) begin
-      loaded_data <= 0;
-    end else if (in_en) begin
-      loaded_data <= loaded_data_nxt;
-    end
-  end
+  // always @(posedge clk or posedge rst) begin
+  //   if(rst) begin
+  //     loaded_data <= 0;
+  //   end else if (in_en) begin
+  //     loaded_data <= loaded_data_nxt;
+  //   end
+  // end
 
   always @(posedge clk or posedge rst) begin
     if(rst) begin
@@ -313,6 +324,19 @@ output [127:0] iot_out;
       to_module_valid <= to_module_valid_nxt;
     end
   end
+
+  generate
+    for(gi = 0; gi < 16; gi = gi + 1) begin: loadgenerate
+      always @(posedge clk or posedge rst) begin
+        if(rst) begin
+          loaded_data[gi] <= 0;
+        end else if (load_gate[gi]) begin
+          loaded_data[gi] <= loaded_data_nxt;
+        end
+      end
+    end
+  endgenerate
+  
 
   // always @(posedge clk or posedge rst) begin
   //   if(rst) begin
