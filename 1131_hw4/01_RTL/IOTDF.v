@@ -44,6 +44,7 @@ output [127:0] iot_out;
   wire crc_o_valid, minmax_o_valid, crypt_o_valid;
   wire crypt_enable, crc_enable, minmax_enable;
   reg minmax_gate;
+  wire dd_gate;
 
   ENCRYPT crypt0 (
     .i_clk(clk),
@@ -94,6 +95,8 @@ output [127:0] iot_out;
   assign crypt_enable = (fn_sel == FN_ENCRYPT || fn_sel == FN_DECRYPT);
   assign crc_enable = (fn_sel == FN_CRC_GEN);
   assign minmax_enable = (fn_sel == FN_TOP2MAX || fn_sel == FN_LAST2MIN);
+
+  assign dd_gate = (crypt_enable || (minmax_enable && minmax_gate));
 
 
 
@@ -263,7 +266,7 @@ output [127:0] iot_out;
     if(rst) begin
       divisor <= 0;
       data <= 0;
-    end else if (!crc_enable) begin
+    end else if (dd_gate) begin
       divisor <= divisor_nxt;
       data <= data_nxt[63:3];
     end
