@@ -29,7 +29,7 @@ output [127:0] iot_out;
   reg [60:0] data;
   reg [63:0] minmax_upper, minmax_upper_nxt;
   reg [127:0] divisor, divisor_nxt; // Divisor, second biggest, second smallest, key
-  reg [127:0] iot_data_out, iot_data_out_nxt; // output data
+  reg [127:0] iot_data_out_nxt; // output data
   reg [127:0] loaded_data, loaded_data_nxt; // loaded data 
   reg [3:0] state, state_nxt;
   reg [6:0] cnt_data, cnt_data_nxt;
@@ -43,6 +43,7 @@ output [127:0] iot_out;
   wire [127:0] crc_final_out, minmax_final_out;
   wire crc_o_valid, minmax_o_valid, crypt_o_valid;
   wire crypt_enable, crc_enable, minmax_enable;
+  reg minmax_gate;
 
   ENCRYPT crypt0 (
     .i_clk(clk),
@@ -157,6 +158,7 @@ output [127:0] iot_out;
     total_o_valid = 0;
     iot_data_out_nxt = 0;
     to_module_valid_nxt = 0;
+    minmax_gate = 0;
     case(state)
       S_CRYPT: begin
         total_o_valid = crypt_o_valid;
@@ -177,6 +179,7 @@ output [127:0] iot_out;
         total_o_valid = minmax_o_valid;
         iot_data_out_nxt = minmax_final_out;
         to_module_valid_nxt = (cnt_load == 0 && cnt_data != 0);
+        minmax_gate = to_module_valid_nxt;
       end
     endcase
   end
@@ -230,7 +233,7 @@ output [127:0] iot_out;
       cnt_load <= 0;
       o_busy_reg <= 1;
       loaded_data <= 0;
-      to_module_valid <= 0;
+      // to_module_valid <= 0;
       crc_remainder_reg <= 0;
       // minmax_upper <= 0;
     end else begin
@@ -242,7 +245,7 @@ output [127:0] iot_out;
       cnt_load <= cnt_load_nxt;
       o_busy_reg <= o_busy_nxt;
       loaded_data <= loaded_data_nxt;
-      to_module_valid <= to_module_valid_nxt;
+      // to_module_valid <= to_module_valid_nxt;
       crc_remainder_reg <= data_nxt[2:0];
       // minmax_upper <= minmax_upper_nxt;
     end
@@ -251,7 +254,7 @@ output [127:0] iot_out;
   always @(posedge clk or posedge rst) begin
     if(rst) begin
       minmax_upper <= 0;
-    end else if (minmax_enable) begin
+    end else if (minmax_enable && minmax_gate) begin
       minmax_upper <= minmax_upper_nxt;
     end
   end
@@ -263,6 +266,14 @@ output [127:0] iot_out;
     end else if (!crc_enable) begin
       divisor <= divisor_nxt;
       data <= data_nxt[63:3];
+    end
+  end
+
+  always @(posedge clk or posedge rst) begin
+    if(rst) begin
+      to_module_valid <= 0;
+    end else if (crypt_enable) begin
+      to_module_valid <= to_module_valid_nxt;
     end
   end
 
@@ -536,7 +547,6 @@ module CRC(
   localparam S_CALC_B = 2'd2;
   localparam S_CALC_C = 2'd3;
 
-  localparam DIVISOR = {{4'b1110}, {127'b0}};
   
 
   reg [1:0] state, state_nxt;
