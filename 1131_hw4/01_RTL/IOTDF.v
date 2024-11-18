@@ -732,6 +732,8 @@ module MinMax(
   input i_enable,
   input [127:0] reg1,
   input [127:0] reg2,
+  input [7:0] data_segment,
+  input [3:0] cnt_load,
   output [127:0] o_reg1,
   output [127:0] o_reg2,
   output [127:0] o_final_out,
@@ -746,11 +748,17 @@ module MinMax(
   reg [1:0] state, state_nxt;
   reg [127:0] reg1_nxt, reg2_nxt;
   reg [2:0] cnt, cnt_nxt;
+  reg replace [0:1], replace_nxt[0:1]; 
+  reg [7:0] 
+  wire [3:0] cnt_load_now;
+
+  integer i;
 
   assign o_reg1 = reg1_nxt;
   assign o_reg2 = reg2_nxt;
   assign o_final_out = (cnt == 0)? reg1 : reg2;
   assign o_valid = (state == S_DONE);
+  assign cnt_load_now = (i_enable)? cnt_load - 1;
 
   // FSM
   always @(*) begin
@@ -817,9 +825,13 @@ module MinMax(
     if(i_rst) begin
       state <= S_IDLE;
       cnt <= 0;
+      for(i=0; i<2; i=i+1)
+        replace[i] <= 0;
     end else if(i_enable) begin
       state <= state_nxt;
       cnt <= cnt_nxt;
+      for(i=0; i<2; i=i+1)
+        replace[i] <= replace_nxt[i];
     end
   end
 
