@@ -792,7 +792,7 @@ module MinMax(
     if(i_valid) begin
       if(cnt == 0) begin
         reg1_nxt = iot_data;
-        reg2_nxt = (i_Max)? 0: {127{1'b1}};
+        reg2_nxt = (i_Max)? 0: {128{1'b1}};
       end
       else if(i_Max) begin
         if(iot_data > reg1) begin
