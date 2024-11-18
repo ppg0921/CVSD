@@ -7,16 +7,16 @@ Report : timing
         -max_paths 1
 Design : IOTDF
 Version: U-2022.12
-Date   : Sat Nov 16 22:16:43 2024
+Date   : Mon Nov 18 15:30:42 2024
 ****************************************
 
 Operating Conditions: slow   Library: slow
 Wire Load Model Mode: top
 
-  Startpoint: loaded_data_reg[1][2]
+  Startpoint: divisor_reg[41]
               (rising edge-triggered flip-flop clocked by clk)
-  Endpoint: divisor_reg[39]
-            (rising edge-triggered flip-flop clocked by clk)
+  Endpoint: iot_out[51]
+            (output port clocked by clk)
   Path Group: clk
   Path Type: max
 
@@ -24,45 +24,36 @@ Wire Load Model Mode: top
   -----------------------------------------------------------
   clock clk (rise edge)                    0.00       0.00
   clock network delay (ideal)              1.00       1.00
-  loaded_data_reg[1][2]/CK (DFFRX1)        0.00       1.00 r
-  loaded_data_reg[1][2]/Q (DFFRX1)         0.53       1.53 f
-  U3049/Y (NOR2XL)                         0.14       1.67 r
-  U3400/Y (INVXL)                          0.06       1.73 f
-  U3402/Y (OAI21XL)                        0.21       1.94 r
-  U3412/Y (INVXL)                          0.07       2.01 f
-  U3414/Y (NAND3XL)                        0.11       2.12 r
-  U3415/Y (NAND3XL)                        0.10       2.22 f
-  U3416/Y (NAND3XL)                        0.12       2.34 r
-  U2366/Y (OAI2BB1X1)                      0.15       2.49 r
-  U1535/Y (NAND2XL)                        0.06       2.55 f
-  U1218/Y (NAND3XL)                        0.10       2.65 r
-  U1226/Y (NAND2XL)                        0.09       2.73 f
-  U3467/Y (NAND3X1)                        0.08       2.81 r
-  U1242/Y (NAND3XL)                        0.10       2.91 f
-  U3474/Y (NAND3X1)                        0.12       3.03 r
-  U1250/Y (AOI21XL)                        0.08       3.11 f
-  U3480/Y (OAI21XL)                        0.21       3.32 r
-  U3486/Y (AOI21X1)                        0.11       3.43 f
-  U3489/Y (OA21X2)                         0.26       3.69 f
-  U1282/Y (NOR2XL)                         0.22       3.91 r
-  U3493/Y (AOI21X1)                        0.11       4.01 f
-  U3494/Y (NOR2X2)                         0.10       4.11 r
-  U2351/Y (INVX3)                          0.09       4.20 f
-  U1377/Y (INVX6)                          0.21       4.42 r
-  U4699/Y (AOI211XL)                       0.14       4.55 f
-  U4700/Y (OAI21XL)                        0.10       4.65 r
-  divisor_reg[39]/D (DFFRX1)               0.00       4.65 r
-  data arrival time                                   4.65
+  divisor_reg[41]/CK (DFFRX1)              0.00       1.00 r
+  divisor_reg[41]/Q (DFFRX1)               0.53       1.53 f
+  U2191/Y (XNOR2X1)                        0.22       1.75 r
+  U2154/Y (CLKINVX1)                       0.18       1.93 f
+  U2193/Y (NAND2X1)                        0.12       2.05 r
+  U2194/Y (NAND2X1)                        0.09       2.14 f
+  U2195/Y (INVXL)                          0.08       2.22 r
+  U2197/Y (NAND2XL)                        0.08       2.30 f
+  U2198/Y (INVX1)                          0.10       2.40 r
+  U2216/Y (NOR3XL)                         0.07       2.47 f
+  U2217/Y (AOI211XL)                       0.22       2.70 r
+  U1089/Y (OAI31XL)                        0.10       2.80 f
+  U1412/Y (OAI21XL)                        0.12       2.92 r
+  U1637/Y (NOR2X1)                         0.09       3.01 f
+  U1401/Y (OAI2BB1X1)                      0.09       3.09 r
+  U1396/Y (XOR2X1)                         0.16       3.26 f
+  U3326/Y (AOI211X1)                       0.19       3.44 r
+  U1072/Y (OA21XL)                         0.22       3.66 r
+  U4264/Y (OAI222X1)                       0.24       3.90 f
+  iot_out[51] (out)                        0.00       3.90 f
+  data arrival time                                   3.90
 
   clock clk (rise edge)                    4.00       4.00
   clock network delay (ideal)              1.00       5.00
   clock uncertainty                       -0.10       4.90
-  divisor_reg[39]/CK (DFFRX1)              0.00       4.90 r
-  library setup time                      -0.25       4.65
-  data required time                                  4.65
+  output external delay                   -1.00       3.90
+  data required time                                  3.90
   -----------------------------------------------------------
-  data required time                                  4.65
-  data arrival time                                  -4.65
+  data required time                                  3.90
+  data arrival time                                  -3.90
   -----------------------------------------------------------
   slack (MET)                                         0.00
 

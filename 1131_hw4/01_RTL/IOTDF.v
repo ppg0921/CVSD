@@ -416,9 +416,11 @@ module ENCRYPT(
   localparam [5:0] Final_permutation [63:0] = '{6'd24,6'd56,6'd16,6'd48,6'd8,6'd40,6'd0,6'd32,6'd25,6'd57,6'd17,6'd49,6'd9,6'd41,6'd1,6'd33,6'd26,6'd58,6'd18,6'd50,6'd10,6'd42,6'd2,6'd34,6'd27,6'd59,6'd19,6'd51,6'd11,6'd43,6'd3,6'd35,6'd28,6'd60,6'd20,6'd52,6'd12,6'd44,6'd4,6'd36,6'd29,6'd61,6'd21,6'd53,6'd13,6'd45,6'd5,6'd37,6'd30,6'd62,6'd22,6'd54,6'd14,6'd46,6'd6,6'd38,6'd31,6'd63,6'd23,6'd55,6'd15,6'd47,6'd7,6'd39};
   reg [3:0] cnt, cnt_nxt;
   reg [2:0] state, state_nxt;
-  reg [63:0] plaintext_nxt, key_nxt, key_tmp, key_permuted;
+  reg [63:0] plaintext_nxt, key_nxt, key_permuted;
+  reg [47:0] key_PC2;
   reg [47:0] text_expended;
   reg [47:0] key_now, text_tmp;
+  reg [56:0] key_tmp;
   wire [31:0] text_intermediate_nxt;
   reg [31:0]  F_out, R_nxt, L_nxt;
   wire [31:0] R_now, L_now;
@@ -476,13 +478,19 @@ module ENCRYPT(
 
   // key generation && text tmp --> text intermediate
   always @(*) begin
-    for(i = 0; i < 48; i = i + 1) begin
-      key_tmp[i] = key[PC2[i]];
-    end
-    key_tmp[63:48] = 0;
+    // for(i = 0; i < 64; i = i + 1) begin
+    //   key_tmp[i] = 0;
+    // end
+    // key_tmp[63:48] = 0;
+    key_tmp = 0;
+    key_PC2 = 0;
     key_nxt = key;
     // key_tmp = 0;
     key_permuted = 0;
+
+    for(i=0; i<48; i=i+1)
+      text_expended[i] = 0;
+    // text_tmp = key_tmp[47:0] ^ text_expended;
     case(state)
       S_PC1_ROTATE: begin
         for(i=0; i<56; i=i+1) begin
@@ -514,11 +522,15 @@ module ENCRYPT(
         end
         // for(i=0; i<48; i=i+1)
         //   key_tmp[i] = key[PC2[i]];
+        for(i=0; i<48; i=i+1)
+          text_expended[i] = R_now[Expansion[i]];
+        for(i = 0; i < 48; i = i + 1) begin
+          key_PC2[i] = key[PC2[i]];
+        end
+        
       end
     endcase
-    for(i=0; i<48; i=i+1)
-      text_expended[i] = R_now[Expansion[i]];
-    text_tmp = key_tmp[47:0] ^ text_expended;
+    text_tmp = key_PC2[47:0] ^ text_expended;
   end
 
   // F function && plaintext_nxt
@@ -680,7 +692,7 @@ module CRC(
 
   // calculation
   always @(*) begin
-    o_remainder_nxt = i_remainder;
+    o_remainder_nxt = 0;
     case(state)
       // S_IDLE: begin
       //   if(i_valid) o_remainder_nxt = calcA(iot_in, {3'b000});
