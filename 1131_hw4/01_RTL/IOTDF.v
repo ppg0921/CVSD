@@ -47,6 +47,7 @@ output [127:0] iot_out;
   wire dd_gate, key_upper_gate;
   reg load_gate [0:15];
   wire [127:0] all_loaded_data;
+  // reg minmax_compare, minmax_compare_nxt;
 
   genvar gi;
   integer i;
@@ -85,6 +86,9 @@ output [127:0] iot_out;
     .i_valid(to_module_valid_nxt),
     .i_Max(fn_sel == FN_TOP2MAX),
     .i_enable(minmax_enable),
+    // .i_compare(minmax_compare),
+    .i_cnt_load(cnt_load),
+    .i_data_segment(loaded_data[cnt_load-4'b1]),
     .reg1({minmax_upper, data, crc_remainder_reg}),
     .reg2({key_upper, divisor[63:0]}),
     .o_reg1(minmax_reg1_out),
@@ -171,6 +175,7 @@ output [127:0] iot_out;
     to_module_valid_nxt = 0;
     minmax_gate = 0;
     key_update = 0;
+    // minmax_compare_nxt = 0;
     case(state)
       S_CRYPT: begin
         total_o_valid = crypt_o_valid;
@@ -195,6 +200,7 @@ output [127:0] iot_out;
         iot_data_out_nxt = minmax_final_out;
         to_module_valid_nxt = (cnt_load == 0 && cnt_data != 0);
         minmax_gate = to_module_valid_nxt;
+        // minmax_compare_nxt = in_en;
       end
     endcase
   end
@@ -286,8 +292,10 @@ output [127:0] iot_out;
   always @(posedge clk or posedge rst) begin
     if(rst) begin
       minmax_upper <= 0;
+      // minmax_compare <= 0;
     end else if (minmax_gate) begin
       minmax_upper <= minmax_upper_nxt;
+      // minmax_compare <= minmax_compare_nxt;
     end
   end
 
@@ -732,8 +740,8 @@ module MinMax(
   input i_enable,
   input [127:0] reg1,
   input [127:0] reg2,
-  input [7:0] data_segment,
-  input [3:0] cnt_load,
+  input [7:0] i_data_segment,
+  input [3:0] i_cnt_load,
   output [127:0] o_reg1,
   output [127:0] o_reg2,
   output [127:0] o_final_out,
@@ -749,7 +757,7 @@ module MinMax(
   reg [127:0] reg1_nxt, reg2_nxt;
   reg [2:0] cnt, cnt_nxt;
   reg replace [0:1], replace_nxt[0:1]; 
-  reg [7:0] 
+  reg [7:0] selected_data [0:1];
   wire [3:0] cnt_load_now;
 
   integer i;
@@ -758,7 +766,7 @@ module MinMax(
   assign o_reg2 = reg2_nxt;
   assign o_final_out = (cnt == 0)? reg1 : reg2;
   assign o_valid = (state == S_DONE);
-  assign cnt_load_now = (i_enable)? cnt_load - 1;
+  assign cnt_load_now = (i_enable)? i_cnt_load - 1 : 0;
 
   // FSM
   always @(*) begin
@@ -793,7 +801,29 @@ module MinMax(
     end
   end
 
+  always @(*) begin
+    selected_data[0] = 0;
+    selected_data[1] = 0;
+    if(i_enable) begin
+      selected_data[0] = reg1[cnt_load_now*8 +: 8];
+      selected_data[1] = reg2[cnt_load_now*8 +: 8];
+    end
+  end
+
   // Calculation
+  always @(*) begin
+    for(i=0; i<2; i=i+1)
+      replace_nxt[i] = replace[i];
+    if(i_enable) begin
+      if(i_data_segment > selected_data[0]) replace_nxt[0] = (i_Max);
+      else if(i_data_segment < selected_data[0]) replace_nxt[0] = !(i_Max);
+      if(i_data_segment > selected_data[1]) replace_nxt[1] = (i_Max);
+      else if(i_data_segment < selected_data[1]) replace_nxt[1] = !(i_Max);
+    end
+    
+  end
+
+
   always @(*) begin
     reg1_nxt = reg1;
     reg2_nxt = reg2;
@@ -802,18 +832,11 @@ module MinMax(
         reg1_nxt = iot_data;
         reg2_nxt = (i_Max)? 0: {128{1'b1}};
       end
-      else if(i_Max) begin
-        if(iot_data > reg1) begin
+      else begin
+        if(replace_nxt[0]) begin
           reg2_nxt = reg1;
           reg1_nxt = iot_data;
-        end else if(iot_data > reg2) begin
-          reg2_nxt = iot_data;
-        end
-      end else begin
-        if(iot_data < reg1) begin
-          reg2_nxt = reg1;
-          reg1_nxt = iot_data;
-        end else if(iot_data < reg2) begin
+        end else if(replace_nxt[1]) begin
           reg2_nxt = iot_data;
         end
       end
